@@ -9,7 +9,6 @@ for YouTube Shorts / TikTok.
 import json
 import logging
 import subprocess
-import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -42,12 +41,13 @@ def compose_video(
 ) -> Path:
     """Compose the final short-form video.
 
-    Concatenates clips (looping to fill audio duration), scales to
-    1080x1920 with crop (no black bars), mixes voice audio with
-    optional background music, and burns in ASS subtitles.
+    Concatenates clips (straight cuts, no transitions), scales to 1080x1920
+    with crop (no black bars), mixes voice audio with optional background
+    music, and burns in ASS subtitles.
 
     Args:
-        clips: Ordered list of video clip paths.
+        clips: Ordered list of video clip paths, each already fit to its
+            scene's exact narrated duration by visuals.generate_clips.
         audio: Path to the voice narration audio file.
         subs: Path to the ASS subtitle file.
         output: Where to save the final MP4.
@@ -70,7 +70,6 @@ def compose_video(
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    # Get audio duration
     audio_dur = _get_duration(audio)
     duration = audio_dur + 1.0  # 1s padding
 
@@ -79,84 +78,68 @@ def compose_video(
         len(clips), audio_dur, output.name,
     )
 
-    # Build concat file (loop clips to fill duration)
-    total_vid = 0.0
+    subs_escaped = (
+        str(subs.resolve())
+        .replace("\\", "\\\\")
+        .replace(":", "\\:")
+        .replace("'", "\\'")
+    )
+    base_vf = (
+        f"scale=1080:1920:force_original_aspect_ratio=increase,"
+        f"crop=1080:1920,"
+        f"ass={subs_escaped}"
+    )
+
+    cmd = ["ffmpeg", "-y"]
     for clip in clips:
-        total_vid += _get_duration(clip)
+        cmd += ["-i", str(clip.resolve())]
+    audio_idx = len(clips)
+    cmd += ["-i", str(audio)]
 
-    loops_needed = int(duration / total_vid) + 2 if total_vid > 0 else 1
+    music_idx = None
+    if music:
+        music_idx = len(clips) + 1
+        cmd += ["-stream_loop", "-1", "-i", str(music)]
 
-    concat_file = Path(f"/tmp/clipforge_concat_{uuid.uuid4().hex[:8]}.txt")
-    with open(concat_file, "w") as f:
-        for _ in range(loops_needed):
-            for clip in clips:
-                f.write(f"file '{clip.resolve()}'\n")
+    cmd += ["-t", str(duration)]
 
-    try:
-        # Build ffmpeg command
-        cmd = [
-            "ffmpeg", "-y",
-            "-f", "concat", "-safe", "0", "-i", str(concat_file),
-            "-i", str(audio),
-        ]
-
-        if music:
-            cmd += ["-stream_loop", "-1", "-i", str(music)]
-
-        cmd += ["-t", str(duration)]
-
-        # Escape subtitle path for ffmpeg filter
-        subs_escaped = (
-            str(subs.resolve())
-            .replace("\\", "\\\\")
-            .replace(":", "\\:")
-            .replace("'", "\\'")
+    if len(clips) == 1:
+        video_filters = f"[0:v]{base_vf}[vout]"
+    else:
+        concat_inputs = "".join(f"[{i}:v]" for i in range(len(clips)))
+        video_filters = (
+            f"{concat_inputs}concat=n={len(clips)}:v=1:a=0[vconcat];"
+            f"[vconcat]{base_vf}[vout]"
         )
 
-        vf = (
-            f"scale=1080:1920:force_original_aspect_ratio=increase,"
-            f"crop=1080:1920,"
-            f"ass={subs_escaped}"
+    if music:
+        filter_complex = (
+            f"{video_filters};"
+            f"[{audio_idx}:a]volume={voice_vol}[voice];"
+            f"[{music_idx}:a]volume={music_vol}[music];"
+            f"[voice][music]amix=inputs=2:duration=first[aout]"
         )
+    else:
+        filter_complex = f"{video_filters};[{audio_idx}:a]volume={voice_vol}[aout]"
 
-        if music:
-            cmd += [
-                "-filter_complex",
-                (
-                    f"[0:v]{vf}[vout];"
-                    f"[1:a]volume={voice_vol}[voice];"
-                    f"[2:a]volume={music_vol}[music];"
-                    f"[voice][music]amix=inputs=2:duration=first[aout]"
-                ),
-                "-map", "[vout]",
-                "-map", "[aout]",
-            ]
-        else:
-            cmd += [
-                "-vf", vf,
-                "-af", f"volume={voice_vol}",
-                "-map", "0:v",
-                "-map", "1:a",
-            ]
+    cmd += [
+        "-filter_complex", filter_complex,
+        "-map", "[vout]",
+        "-map", "[aout]",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:a", "aac", "-b:a", "192k", "-ar", "44100",
+        "-movflags", "+faststart",
+        "-r", "30",
+        "-pix_fmt", "yuv420p",
+        str(output),
+    ]
 
-        cmd += [
-            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-            "-c:a", "aac", "-b:a", "192k", "-ar", "44100",
-            "-movflags", "+faststart",
-            "-r", "30",
-            "-pix_fmt", "yuv420p",
-            str(output),
-        ]
+    log.debug("FFmpeg command: %s", " ".join(cmd))
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 
-        log.debug("FFmpeg command: %s", " ".join(cmd))
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    if proc.returncode != 0:
+        raise RuntimeError(f"FFmpeg failed: {proc.stderr[-500:]}")
 
-        if proc.returncode != 0:
-            raise RuntimeError(f"FFmpeg failed: {proc.stderr[-500:]}")
-
-        size_mb = output.stat().st_size / 1024 / 1024
-        log.info("Video composed: %s (%.1f MB, %.1fs)", output.name, size_mb, duration)
-        return output
-
-    finally:
-        concat_file.unlink(missing_ok=True)
+    size_mb = output.stat().st_size / 1024 / 1024
+    log.info("Video composed: %s (%.1f MB, %.1fs)", output.name, size_mb, duration)
+    return output

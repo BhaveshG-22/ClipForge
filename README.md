@@ -30,7 +30,7 @@ clipforge generate --topic "lightning" --style mind_blowing
 ## Features
 
 - 🤖 **AI Script Writing** — 11 content styles (mind_blowing, dark_fact, psychology, space...) with 25+ viral hook templates
-- 🎨 **AI-Generated Visuals** — Contextual images via [FLUX Schnell](https://fal.ai/models/fal-ai/flux/schnell) (~$0.003/image), with cinematic Ken Burns camera effects
+- 🎨 **AI-Generated Visuals** — Contextual images via [FLUX Schnell on Replicate](https://replicate.com/black-forest-labs/flux-schnell) (~$0.003/image), with cinematic Ken Burns camera effects
 - 🗣️ **Natural TTS Voices** — 14+ voices via Edge TTS (100% free, no API key)
 - 📝 **Word-by-Word Subtitles** — Animated ASS subtitles with yellow highlight (85% of viewers watch without sound)
 - 🎵 **Background Music** — Optional music layer with auto-mixing
@@ -103,21 +103,21 @@ generate_short(
 
 ## Configuration
 
-All settings via environment variables:
+All settings via environment variables. Copy `.env.example` to `.env` and fill in the keys you want to use — `.env` is gitignored, so your keys never get committed.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CLIPFORGE_LLM_PROVIDER` | `groq` | LLM provider: `groq` (free), `openai`, `anthropic` |
 | `CLIPFORGE_LLM_KEY` | — | API key for script generation |
 | `CLIPFORGE_LLM_MODEL` | auto | Model name (auto-selects best per provider) |
-| `CLIPFORGE_FAL_KEY` | — | [fal.ai](https://fal.ai) key for AI images (optional) |
+| `CLIPFORGE_REPLICATE_KEY` | — | [Replicate](https://replicate.com) API token for AI images (optional; also reads `REPLICATE_API_TOKEN`) |
 | `CLIPFORGE_VOICE` | `en-US-AndrewMultilingualNeural` | Default TTS voice |
 | `CLIPFORGE_OUTPUT_DIR` | `./output` | Where to save videos |
 
 ### Get your free keys
 
 1. **Groq** (free LLM): [console.groq.com](https://console.groq.com) → Create API Key
-2. **fal.ai** (AI images, ~$0.003/image): [fal.ai/dashboard](https://fal.ai/dashboard) → Keys
+2. **Replicate** (AI images, ~$0.003/image): [replicate.com/account/api-tokens](https://replicate.com/account/api-tokens) → Create token
 
 ---
 
@@ -135,8 +135,7 @@ clipforge generate \
   --topic "lightning" \
   --style dark_fact \
   --voice en-US-BrianMultilingualNeural \
-  --num-clips 5 \
-  --ai-ratio 0.6 \
+  --length 45 \
   --output lightning.mp4
 
 # List available voices
@@ -176,13 +175,13 @@ from clipforge.subtitles import generate_subtitles
 from clipforge.compose import compose_video
 
 # 1. Write or generate a script
-script = generate_story(style="dark_fact", topic="Bermuda Triangle")
+script = generate_story(style="dark_fact", topic="Bermuda Triangle", target_seconds=45)
 
-# 2. Generate AI visuals
-clips = generate_clips(script, output_dir="./clips", num_clips=5, ai_ratio=0.8)
-
-# 3. Text-to-speech
+# 2. Text-to-speech (word timestamps drive how visuals are timed below)
 audio, word_timestamps = synthesize_speech(script, output_path="./voice.mp3")
+
+# 3. Generate AI visuals — clips are cut and timed to match the narration
+clips = generate_clips(script, output_dir="./clips", word_data=word_timestamps)
 
 # 4. Animated subtitles
 subs = generate_subtitles(word_timestamps, output_path="./subs.ass")
@@ -237,7 +236,7 @@ for topic, style in topics:
 |-----------|------|-------|
 | Script (Groq) | **Free** | Free tier: 30 req/min |
 | Voice (Edge TTS) | **Free** | Microsoft Edge TTS, unlimited |
-| AI Images (fal.ai) | ~$0.009/video | 3 images × $0.003 |
+| AI Images (Replicate) | ~$0.009/video | 3 images × $0.003 |
 | FFmpeg | **Free** | Open source |
 | **Total per video** | **~$0.01** | or $0 without AI images |
 

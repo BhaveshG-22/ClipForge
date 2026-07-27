@@ -6,6 +6,7 @@ OpenAI-compatible LLM (Groq free tier, OpenAI, Anthropic).
 Supports 11 content styles and 25+ hook templates.
 """
 
+import dataclasses
 import json
 import logging
 import random
@@ -159,6 +160,9 @@ def _call_llm(
     if provider == "anthropic":
         return _call_anthropic(prompt, config, max_tokens, temperature)
 
+    if provider == "replicate":
+        return _call_replicate_llm(prompt, config, max_tokens, temperature)
+
     # OpenAI-compatible (Groq, OpenAI)
     payload = {
         "model": config.resolved_model,
@@ -246,12 +250,53 @@ def _call_anthropic(
     raise RuntimeError("Anthropic: max retries exceeded")
 
 
+def _call_replicate_llm(
+    prompt: str,
+    config: Config,
+    max_tokens: int,
+    temperature: float,
+) -> str:
+    """Call an OpenAI open-weight model (gpt-oss) hosted on Replicate."""
+    import httpx
+    import replicate
+
+    client = replicate.Client(
+        api_token=config.replicate_key,
+        timeout=httpx.Timeout(10.0, read=120.0, connect=10.0, pool=10.0),
+    )
+
+    for attempt in range(3):
+        try:
+            output = client.run(
+                config.resolved_model,
+                input={
+                    "prompt": prompt,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "top_p": 1,
+                },
+            )
+            return "".join(output).strip()
+        except Exception as exc:
+            if attempt < 2:
+                time.sleep(2 ** attempt * 3)
+                continue
+            raise RuntimeError(f"Replicate LLM request failed: {exc}") from exc
+
+    raise RuntimeError("Replicate LLM: max retries exceeded")
+
+
 # ── Public API ───────────────────────────────────────────────────────────────
+
+
+# Calibrated from real TTS runs (Edge TTS, -8% rate): ~2.5 words/sec.
+WORDS_PER_SECOND = 2.5
 
 
 def generate_story(
     style: str = "mind_blowing",
     topic: Optional[str] = None,
+    target_seconds: float = 60.0,
     config: Optional[Config] = None,
 ) -> str:
     """Generate an engaging short-form video script.
@@ -259,10 +304,12 @@ def generate_story(
     Args:
         style: Content style key (see ``STYLES``).
         topic: Optional topic hint to guide the story.
+        target_seconds: Desired narration length in seconds; the word count
+            band is derived from this (~2.5 words/sec).
         config: Configuration instance. Uses env vars if not provided.
 
     Returns:
-        A 140-165 word story script ready for TTS narration.
+        A story script sized for roughly ``target_seconds`` of narration.
 
     Raises:
         RuntimeError: If the LLM call fails.
@@ -274,40 +321,87 @@ def generate_story(
         available = ", ".join(sorted(STYLES.keys()))
         raise ValueError(f"Unknown style '{style}'. Available: {available}")
 
+    target_words = round(target_seconds * WORDS_PER_SECOND)
+    low_words = max(20, target_words - 12)
+    high_words = target_words + 12
+    min_acceptable_words = max(20, int(low_words * 0.6))
+
     style_prompt = STYLES[style]
     hook_instruction = random.choice(HOOK_TEMPLATES)
     topic_hint = f" The topic should be related to: {topic}." if topic else ""
 
-    prompt = f"""You are a captivating storyteller for short-form video content (TikTok/YouTube Shorts).
+    prompt = f"""You are a retention-focused scriptwriter for a faceless short-form video channel (TikTok/YouTube Shorts).
 
-{style_prompt}{topic_hint}
+CHANNEL NICHE: {style_prompt}{topic_hint}
+LENGTH: ~{target_seconds:.0f} seconds of narration, {low_words}-{high_words} words. Count carefully — too short kills the pacing, too long loses viewers
+FORMAT: Shorts — one continuous piece of narration, no scene headers, no labels
 
-Hook instruction: {hook_instruction}
+HOOK (first sentence only — the first ~3 seconds decide if the viewer keeps watching, not the payoff, not the production quality, the raw immediate reaction to this line)
+- Open with a specific, jarring claim, an uncomfortable accusation, or a detail that sounds impossible but is true — never a calm explanation of a concept or topic
+- Do NOT start by naming or defining the concept/topic ("X is a tactic where...", "Your brain is wired to...", "X happens when..."). That reads as a lecture intro, not a hook. Lead with the effect on the viewer or the moment itself — explain the mechanism later, once they're already hooked
+- No greeting, no "in this video", no channel/topic announcement
+- You MUST use this hook instruction, do NOT improvise a different opening: {hook_instruction}
+- End the opening sentence on an unresolved question, or a statement that demands to know what happens next
+- ABSOLUTELY FORBIDDEN opening phrases (instant disqualification): "What if I told you", "What if I said", "Let me tell you", "Did you know", "Brace yourself", "Buckle up", "Here is the thing", "You won't believe"
 
-Rules:
-- Write exactly 140-165 words (this is critical for 55-65 second video duration). Count carefully — too short kills the pacing, too long loses viewers
-- ABSOLUTELY FORBIDDEN phrases (instant disqualification): "What if I told you", "What if I said", "Let me tell you", "Did you know", "Brace yourself", "Buckle up", "Here is the thing", "You won't believe"
-- You MUST use the hook instruction above — do NOT improvise a different opening
-- Use vivid sensory language — make the listener SEE, FEEL, HEAR the story
-- Vary sentence length dramatically — mix 3-word punches with longer flowing sentences
+OPEN LOOP
+- Plant one specific question or unresolved stake in the first two sentences
+- Do NOT answer it until the final 20% of the script
+- Reference it again once or twice through the middle without resolving it
+- When you finally resolve it near the end, recontextualize the hook in the last line — the ending should reframe how the opening line lands
+
+PACING (this script is read aloud by TTS — every rule below is about how it sounds spoken, not how it reads on a page)
+- Average sentence 8-14 words. Vary rhythm — never two sentences in a row with the same length or the same emotional temperature
+- Escalate roughly every 1-2 sentences with a shift in intensity: a new detail, a reversal, a stake raised. Don't let the tension go flat for more than two sentences. This should feel like a story with rising stakes, not an explainer with facts bolted on
+- Name at most ONE technical term or piece of jargon in the entire script. If you introduce a concept, use plain language for it everywhere else — never stack two named concepts back to back, that turns a story into a lecture
+- Second person ("you") beats third person ("people") wherever it's natural — a specific, personal, uncomfortable framing beats a general clinical one
+- Concrete nouns and numbers over abstractions — never "a lot", say how many; never "a long time", say how long
+- Cut any sentence that only sets up another sentence — get straight to the content
+- Do not summarize what you're about to say, just say it
+- No em dashes, no parentheses, no semicolons — plain spoken punctuation only (periods, commas, question marks)
 - Include one unexpected twist or reversal that reframes everything
-- Build tension throughout
-- End with an open loop or call to curiosity — leave them wanting more, make them save or share
-- Do NOT use hashtags, emojis, or formatting
-- Write in plain spoken English, as if telling someone a story
-- The story should feel complete yet leave a lingering question
-- Each story must feel unique — avoid formulaic structure
+- If you name or define a term/acronym, explain it in one natural flowing sentence — never spell it out as a bare comma-separated list of words
+- Do NOT use hashtags, emojis, or any formatting
+- Each script must feel unique — avoid formulaic structure
 
-Write the story now, nothing else:"""
+OUTPUT
+Write ONLY the narration itself as plain flowing text — no title, no labels, no timecodes, no visual directions, nothing but the words to be spoken, nothing else:"""
 
     log.info("Generating %s story (topic=%s)...", style, topic or "random")
-    story = _call_llm(prompt, config)
-    story = _filter_banned(story)
 
-    word_count = len(story.split())
-    log.info("Story generated: %d words", word_count)
+    # Script generation always goes through Groq: a free, reliable chat-
+    # completion API. gpt-oss-120b via Replicate's raw-prompt mode has been
+    # observed to truncate mid-sentence for some prompts (it expects the
+    # "harmony" response format, not a bare prompt string) — scene
+    # extraction and motion prompts still use whatever provider is
+    # configured, since those already degrade gracefully on failure.
+    story_config = dataclasses.replace(
+        config, llm_provider="groq", llm_key="", llm_model=None
+    )
 
-    return story
+    best_story = ""
+    best_word_count = 0
+    for attempt in range(1, 4):
+        story = _filter_banned(_call_llm(prompt, story_config))
+        word_count = len(story.split())
+
+        if word_count > best_word_count:
+            best_story, best_word_count = story, word_count
+
+        if word_count >= min_acceptable_words:
+            log.info("Story generated: %d words", word_count)
+            return story
+
+        log.warning(
+            "Story attempt %d/3 too short (%d words, likely truncated) — retrying",
+            attempt, word_count,
+        )
+
+    log.warning(
+        "All story attempts came back short — using longest one (%d words)",
+        best_word_count,
+    )
+    return best_story
 
 
 def list_styles() -> dict[str, str]:

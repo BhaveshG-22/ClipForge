@@ -10,6 +10,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 # ── Default models per provider ──────────────────────────────────────────────
 
@@ -17,6 +21,7 @@ DEFAULT_MODELS: dict[str, str] = {
     "groq": "llama-3.3-70b-versatile",
     "openai": "gpt-4o-mini",
     "anthropic": "claude-haiku-4-5-20251001",
+    "replicate": "openai/gpt-oss-120b",
 }
 
 # ── API endpoints ────────────────────────────────────────────────────────────
@@ -25,6 +30,13 @@ API_ENDPOINTS: dict[str, str] = {
     "groq": "https://api.groq.com/openai/v1/chat/completions",
     "openai": "https://api.openai.com/v1/chat/completions",
     "anthropic": "https://api.anthropic.com/v1/messages",
+}
+
+# Standard provider env vars used as a fallback when CLIPFORGE_LLM_KEY isn't set.
+PROVIDER_KEY_ENV: dict[str, str] = {
+    "groq": "GROQ_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
 }
 
 # ── Available TTS voices ─────────────────────────────────────────────────────
@@ -66,8 +78,8 @@ class Config:
     llm_model: Optional[str] = field(
         default_factory=lambda: os.environ.get("CLIPFORGE_LLM_MODEL")
     )
-    fal_key: str = field(
-        default_factory=lambda: os.environ.get("CLIPFORGE_FAL_KEY", "")
+    replicate_key: str = field(
+        default_factory=lambda: os.environ.get("CLIPFORGE_REPLICATE_KEY", "")
     )
     voice: str = field(
         default_factory=lambda: os.environ.get(
@@ -79,6 +91,17 @@ class Config:
             os.environ.get("CLIPFORGE_OUTPUT_DIR", "./output")
         )
     )
+
+    def __post_init__(self) -> None:
+        if not self.replicate_key:
+            self.replicate_key = os.environ.get("REPLICATE_API_TOKEN", "")
+        if not self.llm_key:
+            if self.llm_provider == "replicate":
+                self.llm_key = self.replicate_key
+            else:
+                env_var = PROVIDER_KEY_ENV.get(self.llm_provider)
+                if env_var:
+                    self.llm_key = os.environ.get(env_var, "")
 
     @property
     def resolved_model(self) -> str:
@@ -93,9 +116,9 @@ class Config:
         return API_ENDPOINTS.get(self.llm_provider, API_ENDPOINTS["groq"])
 
     @property
-    def has_fal(self) -> bool:
-        """Check if fal.ai image generation is available."""
-        return bool(self.fal_key)
+    def has_replicate(self) -> bool:
+        """Check if Replicate image generation is available."""
+        return bool(self.replicate_key)
 
     @property
     def has_llm(self) -> bool:
@@ -113,7 +136,7 @@ class Config:
             "LLM Provider": self.llm_provider,
             "LLM Model": self.resolved_model,
             "LLM Key": _mask(self.llm_key),
-            "FAL Key": _mask(self.fal_key),
+            "Replicate Token": _mask(self.replicate_key),
             "Voice": self.voice,
             "Output Dir": str(self.output_dir),
         }

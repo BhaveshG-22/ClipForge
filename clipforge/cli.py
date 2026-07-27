@@ -48,7 +48,7 @@ def cli() -> None:
 @click.option("--script", type=str, default=None, help="Custom script text (skips AI generation).")
 @click.option("--output", "-o", type=click.Path(), default=None, help="Output video path.")
 @click.option("--voice", "-v", type=str, default=None, help="TTS voice name or shorthand.")
-@click.option("--num-clips", type=int, default=5, help="Number of visual clips to generate.")
+@click.option("--length", "-l", type=float, default=60.0, help="Target video length in seconds.")
 @click.option("--music", type=click.Path(exists=True), default=None, help="Background music file.")
 @click.option("--verbose", is_flag=True, help="Enable debug logging.")
 def generate(
@@ -57,7 +57,7 @@ def generate(
     script: Optional[str],
     output: Optional[str],
     voice: Optional[str],
-    num_clips: int,
+    length: float,
     music: Optional[str],
     verbose: bool,
 ) -> None:
@@ -95,7 +95,9 @@ def generate(
             sys.exit(1)
         from .story import generate_story
         click.echo(f"Generating {style} story (topic: {topic or 'random'})...")
-        story = generate_story(style=style, topic=topic, config=config)
+        story = generate_story(
+            style=style, topic=topic, target_seconds=length, config=config,
+        )
         click.echo(f"Story ({len(story.split())} words):\n{story}\n")
     else:
         click.echo("Error: Provide --topic, --script, or set CLIPFORGE_LLM_KEY.", err=True)
@@ -124,8 +126,8 @@ def generate(
     from .visuals import generate_clips
     clips_dir = tmp_dir / "clips"
 
-    click.echo(f"Generating {num_clips} visual clips...")
-    clips = generate_clips(story, clips_dir, num_clips=num_clips, config=config)
+    click.echo("Generating visual clips...")
+    clips = generate_clips(story, clips_dir, word_data=word_data, config=config)
     click.echo(f"Generated {len(clips)} clips")
 
     # Step 5: Compose final video
@@ -170,6 +172,17 @@ def show_config() -> None:
     for key, value in summary.items():
         click.echo(f"  {key:<15} {value}")
     click.echo(f"\nSet via environment variables (CLIPFORGE_*).")
+
+
+@cli.command()
+@click.option("--host", default="127.0.0.1", help="Host to bind the web UI to.")
+@click.option("--port", default=8420, type=int, help="Port to bind the web UI to.")
+def serve(host: str, port: int) -> None:
+    """Launch the local web UI for tracking generation progress live."""
+    import uvicorn
+
+    click.echo(f"clipforge web UI: http://{host}:{port}")
+    uvicorn.run("clipforge.webapp:app", host=host, port=port)
 
 
 def main() -> None:

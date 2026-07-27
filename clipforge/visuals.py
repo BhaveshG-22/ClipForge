@@ -1,26 +1,62 @@
 """
 AI visual generation for clipforge.
 
-Generates contextual images via fal.ai Flux Schnell and converts them
-to Ken Burns effect video clips. Falls back to gradient color clips
-when no FAL_KEY is configured.
+Generates contextual images via Replicate's Flux Schnell and animates them
+into motion clips via Replicate's image-to-video model (prunaai/p-video).
+Image generation retries on failure and rewords the prompt via LLM after
+repeated failures — no gradient fallback for image-generation errors.
+Falls back to a Ken Burns zoom/pan clip if i2v generation fails, and to a
+solid gradient clip only when no scene prompt is available at all (AI
+disabled or scene extraction failed).
 """
 
+import concurrent.futures
 import json
 import logging
-import os
 import random
+import re
 import subprocess
+import threading
 import uuid
 from pathlib import Path
 from typing import Optional
-
-import requests
 
 from .config import Config, get_config
 from .story import _call_llm
 
 log = logging.getLogger("clipforge.visuals")
+
+
+class GenerationCancelled(Exception):
+    """Raised when a running pipeline is asked to stop mid-generation."""
+
+
+# Scenes generate concurrently, one worker thread per in-flight scene, up to
+# this many at once — bounded because Replicate throttles low-credit accounts
+# to a handful of requests per minute, so uncapped concurrency just trades
+# wall-clock time for a wall of 429 retries instead of a real speedup.
+MAX_CONCURRENT_SCENES = 3
+
+# Attaches the current worker thread's scene index to every log record it
+# emits, since scenes now run concurrently and their log lines interleave —
+# the web UI needs this to route "generating image…" etc. to the right card.
+_scene_context = threading.local()
+
+
+class _SceneIndexFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.scene_idx = getattr(_scene_context, "index", None)
+        return True
+
+
+log.addFilter(_SceneIndexFilter())
+
+# Target average seconds per visual scene — used to derive how many scenes
+# to aim for from the actual narrated audio duration.
+TARGET_SCENE_SECONDS = 4.5
+
+# Used only when TTS produced no word timestamps at all (last-resort pacing).
+WORDS_PER_SECOND_FALLBACK = 2.5
 
 # ── Cinematic prompt suffixes ────────────────────────────────────────────────
 
@@ -59,69 +95,329 @@ def _enhance_prompt(scene: str) -> str:
     )
 
 
-# ── Scene prompt extraction ──────────────────────────────────────────────────
+# ── Scene segmentation (timing-aware) ────────────────────────────────────────
+
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+_CLAUSE_SPLIT_RE = re.compile(r"(?<=[.!?,;])\s+")
 
 
-def extract_scene_prompts(
+_MAX_SENTENCE_WORDS = 30
+
+
+def _split_sentences(story: str) -> list[str]:
+    """Split a story into sentences (simple punctuation-based split).
+
+    Falls back to splitting on clause boundaries (commas/semicolons) if the
+    whole story comes back as one long comma-spliced run-on with no other
+    terminal punctuation — otherwise there'd be nothing to segment into
+    more than one scene. Also re-splits any *individual* sentence that's
+    unusually long the same way: an LLM ignoring length guidance for just
+    one sentence would otherwise become one scene that can't be subdivided
+    further downstream (split_long_segments only splits across multiple
+    sentences, not within one).
+    """
+    sentences = [s.strip() for s in _SENTENCE_SPLIT_RE.split(story.strip()) if s.strip()]
+    if len(sentences) <= 1 and len(story.split()) > 20:
+        sentences = [s.strip() for s in _CLAUSE_SPLIT_RE.split(story.strip()) if s.strip()]
+
+    refined: list[str] = []
+    for sentence in sentences:
+        if len(sentence.split()) > _MAX_SENTENCE_WORDS:
+            refined.extend(
+                s.strip() for s in _CLAUSE_SPLIT_RE.split(sentence) if s.strip()
+            )
+        else:
+            refined.append(sentence)
+
+    return refined or [story.strip()]
+
+
+def _fallback_segments(sentences: list[str], target_scene_count: int) -> list[dict]:
+    """Deterministically group sentences into scenes by word count (no LLM)."""
+    total_words = sum(len(s.split()) for s in sentences) or 1
+    words_per_scene = max(1, round(total_words / target_scene_count))
+
+    segments: list[dict] = []
+    current_indices: list[int] = []
+    current_words = 0
+
+    for i, sentence in enumerate(sentences):
+        current_indices.append(i)
+        current_words += len(sentence.split())
+        is_last = i == len(sentences) - 1
+        if current_words >= words_per_scene and not is_last:
+            text = " ".join(sentences[j] for j in current_indices)
+            segments.append({
+                "sentence_indices": current_indices,
+                "text": text,
+                "prompt": f"cinematic scene depicting: {text[:80]}",
+            })
+            current_indices = []
+            current_words = 0
+
+    if current_indices:
+        text = " ".join(sentences[j] for j in current_indices)
+        segments.append({
+            "sentence_indices": current_indices,
+            "text": text,
+            "prompt": f"cinematic scene depicting: {text[:80]}",
+        })
+
+    return segments
+
+
+def segment_story_into_scenes(
     story: str,
-    num_scenes: int = 5,
+    target_scene_count: int,
     config: Optional[Config] = None,
-) -> list[str]:
-    """Use LLM to extract visual scene descriptions from a story.
+) -> list[dict]:
+    """Split a story into scenes aligned to its actual sentences.
+
+    Asks the LLM to group sentence INDICES (not free-invented text) into
+    roughly ``target_scene_count`` visual scenes with an image prompt each.
+    Grouping by index (rather than asking the LLM to reproduce text
+    verbatim) keeps the mapping back to the original sentences exact, which
+    is what lets clip durations later be aligned to real narration
+    timestamps instead of being guessed.
 
     Args:
         story: The narrated story text.
-        num_scenes: Number of visual scenes to extract.
+        target_scene_count: Rough number of scenes to aim for.
         config: Configuration instance.
 
     Returns:
-        List of image generation prompt strings.
+        Ordered list of ``{"sentence_indices": [...], "text": ..., "prompt": ...}``.
     """
     config = config or get_config()
+    sentences = _split_sentences(story)
+    target_scene_count = max(1, min(target_scene_count, len(sentences)))
 
-    prompt = f"""Extract exactly {num_scenes} visual scenes from this story for AI image generation.
+    if not config.has_llm:
+        return _fallback_segments(sentences, target_scene_count)
 
-Story:
-\"\"\"{story}\"\"\"
+    numbered = "\n".join(f"[{i}] {s}" for i, s in enumerate(sentences))
+    prompt = f"""Group these numbered sentences from a video script into roughly {target_scene_count} visual scenes for AI image generation.
+
+Sentences:
+{numbered}
 
 Rules:
-- Each scene should be a vivid, specific visual description (15-30 words)
-- Describe what we SEE, not what we hear or feel
-- Include setting, lighting, mood, and key visual elements
-- Scenes should flow chronologically through the story
-- Make scenes cinematic and dramatic
+- Every sentence index (0 to {len(sentences) - 1}) must appear in exactly one scene, in order, with no gaps or overlaps
+- Group sentences that share the same imagery/moment together; start a new scene when the visual should change
+- Aim for about {target_scene_count} scenes total, but let natural scene changes decide — a few more or fewer is fine
+- For each scene, write a vivid, specific image prompt (15-30 words) describing what we SEE — setting, lighting, mood, key visual elements
 - NO text, NO people's faces in close-up (avoid uncanny valley)
-- Focus on environments, objects, phenomena, wide shots
-- If the story mentions a specific place/object, describe it visually
+- Make it cinematic and dramatic
 
-Return ONLY a JSON array of strings, nothing else:
-["scene 1 description", "scene 2 description", ...]"""
+Return ONLY a JSON array, nothing else:
+[{{"sentences": [0, 1], "prompt": "scene description"}}, ...]"""
 
     try:
-        text = _call_llm(prompt, config, max_tokens=1024, temperature=0.6)
-
-        # Handle possible markdown wrapping
+        text = _call_llm(prompt, config, max_tokens=1500, temperature=0.6)
         if "```" in text:
             text = text.split("```")[1]
             if text.startswith("json"):
                 text = text[4:]
             text = text.strip()
 
-        scenes = json.loads(text)
-        if isinstance(scenes, list) and len(scenes) > 0:
-            log.info("Extracted %d scene prompts from story", len(scenes))
-            return scenes[:num_scenes]
-    except (json.JSONDecodeError, IndexError, RuntimeError) as exc:
-        log.warning("Scene extraction failed: %s", exc)
+        raw_scenes = json.loads(text)
+        if not isinstance(raw_scenes, list) or not raw_scenes:
+            raise ValueError("empty or non-list response")
 
-    # Fallback: split story into chunks
-    words = story.split()
-    chunk_size = max(1, len(words) // num_scenes)
-    scenes = []
-    for i in range(num_scenes):
-        chunk = " ".join(words[i * chunk_size : (i + 1) * chunk_size])
-        scenes.append(f"cinematic scene depicting: {chunk[:80]}")
-    return scenes
+        expected = set(range(len(sentences)))
+        seen: list[int] = []
+        segments: list[dict] = []
+        for scene in raw_scenes:
+            indices = sorted(int(i) for i in scene["sentences"])
+            seen.extend(indices)
+            text_span = " ".join(
+                sentences[i] for i in indices if 0 <= i < len(sentences)
+            )
+            segments.append({
+                "sentence_indices": indices,
+                "text": text_span,
+                "prompt": scene["prompt"],
+            })
+
+        if set(seen) != expected:
+            raise ValueError(f"sentence coverage mismatch: got {sorted(set(seen))}")
+
+        return segments
+    except (json.JSONDecodeError, ValueError, KeyError, TypeError, RuntimeError) as exc:
+        log.warning("Scene segmentation failed: %s — using word-count fallback", exc)
+        return _fallback_segments(sentences, target_scene_count)
+
+
+def compute_scene_timings(
+    segments: list[dict],
+    sentences: list[str],
+    word_data: list[dict],
+) -> list[dict]:
+    """Attach start/end/duration (seconds) to each scene from TTS word timestamps.
+
+    Aligns by proportional word position rather than assuming this module's
+    ``str.split()`` word count exactly matches the TTS engine's own word
+    boundaries (numbers, contractions, etc. can tokenize slightly
+    differently) — this keeps timing correct even when counts drift a bit.
+
+    Args:
+        segments: Scenes from ``segment_story_into_scenes``.
+        sentences: The same sentence list used to build ``segments``.
+        word_data: TTS word-timestamp list from ``voice.generate_speech``.
+
+    Returns:
+        Segments with ``start``, ``end``, and ``duration`` (seconds) added.
+    """
+    if not word_data:
+        segments_out = []
+        t = 0.0
+        for seg in segments:
+            dur = max(2.0, len(seg["text"].split()) / WORDS_PER_SECOND_FALLBACK)
+            segments_out.append({**seg, "start": t, "end": t + dur, "duration": dur})
+            t += dur
+        return segments_out
+
+    sentence_word_counts = [len(s.split()) for s in sentences]
+    cum_words = [0]
+    for count in sentence_word_counts:
+        cum_words.append(cum_words[-1] + count)
+    total_words = cum_words[-1] or 1
+    n_words_tts = len(word_data)
+
+    def word_time(word_idx: int) -> float:
+        scaled = max(0, min(round(word_idx * n_words_tts / total_words), n_words_tts - 1))
+        return word_data[scaled]["start"]
+
+    def word_end_time(word_idx: int) -> float:
+        scaled = max(0, min(round(word_idx * n_words_tts / total_words) - 1, n_words_tts - 1))
+        w = word_data[scaled]
+        return w["start"] + w["duration"]
+
+    audio_end = word_data[-1]["start"] + word_data[-1]["duration"]
+
+    out = []
+    for seg in segments:
+        first_sentence = min(seg["sentence_indices"])
+        last_sentence = max(seg["sentence_indices"])
+        word_start = cum_words[first_sentence]
+        word_end = cum_words[last_sentence + 1]
+
+        start = word_time(word_start) if word_start > 0 else 0.0
+        end = word_end_time(word_end) if word_end < total_words else audio_end
+        end = max(end, start + 1.0)
+
+        out.append({**seg, "start": start, "end": end, "duration": end - start})
+
+    return out
+
+
+def split_long_segments(segments: list[dict], max_duration: float) -> list[dict]:
+    """Split any scene that grew too long into two back-to-back scenes.
+
+    The LLM sometimes groups several sentences into one visual scene when
+    it judges they share the same imagery — reasonable for pacing, but if
+    that scene ends up spanning a large chunk of the video, one static
+    image/motion clip would dominate the screen for too long. This splits
+    the sentence range roughly in half (reusing the same image prompt —
+    each generation is non-deterministic anyway, so the two halves won't
+    look identical) rather than dropping content or re-calling the LLM.
+
+    Args:
+        segments: Timed scenes from ``compute_scene_timings``.
+        max_duration: Longest a single scene is allowed to be, in seconds.
+
+    Returns:
+        Segments with any over-long scene split into two.
+    """
+    changed = True
+    while changed:
+        changed = False
+        out: list[dict] = []
+        for seg in segments:
+            if seg["duration"] <= max_duration or len(seg["sentence_indices"]) < 2:
+                out.append(seg)
+                continue
+
+            indices = seg["sentence_indices"]
+            mid = len(indices) // 2
+            first_indices, second_indices = indices[:mid], indices[mid:]
+            split_time = seg["start"] + seg["duration"] * (len(first_indices) / len(indices))
+
+            out.append({
+                **seg,
+                "sentence_indices": first_indices,
+                "end": split_time,
+                "duration": split_time - seg["start"],
+            })
+            out.append({
+                **seg,
+                "sentence_indices": second_indices,
+                "start": split_time,
+                "end": seg["end"],
+                "duration": seg["end"] - split_time,
+            })
+            changed = True
+        segments = out
+    return segments
+
+
+# ── Motion prompt generation ─────────────────────────────────────────────────
+
+_MOTION_NEGATIVE_TAIL = (
+    "No exaggerated acting, no sudden movements, no camera shake, no zoom jumps, "
+    "no scene transition, no change in lighting, no change in clothing, no "
+    "additional people, no object deformation, no morphing, no warped hands or "
+    "fingers, no unnatural limb movement, no facial distortion, no text, no "
+    "subtitles, no letters, no watermark, no UI elements. Photorealistic "
+    "cinematic motion, emotionally restrained, realistic micro-expressions, "
+    "naturalistic slow-motion feeling."
+)
+
+
+def generate_motion_prompt(scene: str, config: Optional[Config] = None) -> str:
+    """Turn a visual scene description into a detailed i2v motion prompt.
+
+    Args:
+        scene: The scene's image-generation description.
+        config: Configuration instance.
+
+    Returns:
+        A motion prompt describing slow, restrained, realistic movement,
+        with a fixed negative-prompt tail appended.
+    """
+    config = config or get_config()
+
+    fallback_body = (
+        f"{scene}. Subtle, restrained natural motion within the frame — gentle "
+        f"breathing, minimal environmental movement, and an almost imperceptible "
+        f"slow camera push-in. Maintain the original framing, lighting, and depth "
+        f"of field throughout."
+    )
+
+    if not config.has_llm:
+        return f"{fallback_body} {_MOTION_NEGATIVE_TAIL}"
+
+    prompt = f"""Write a short motion description (100-160 words) for an image-to-video AI model, based on this visual scene:
+
+"{scene}"
+
+Rules:
+- Describe only slow, restrained, psychologically realistic motion — subtle body language, breathing, environmental movement, or a slow camera push-in/pan
+- Never describe dramatic action, fast movement, or scene changes
+- Keep the original composition, framing, subject positioning, lighting, and depth of field consistent throughout
+- Write it as a single flowing paragraph, present tense
+- Do not include any disclaimers or negative instructions — just describe the motion itself
+
+Return ONLY the motion description paragraph, nothing else."""
+
+    try:
+        text = _call_llm(prompt, config, max_tokens=400, temperature=0.7).strip()
+        if text:
+            return f"{text} {_MOTION_NEGATIVE_TAIL}"
+    except RuntimeError as exc:
+        log.warning("Motion prompt generation failed: %s", exc)
+
+    return f"{fallback_body} {_MOTION_NEGATIVE_TAIL}"
 
 
 # ── AI image generation ──────────────────────────────────────────────────────
@@ -132,7 +428,7 @@ def generate_image(
     output_path: Path,
     config: Optional[Config] = None,
 ) -> Path:
-    """Generate a portrait image via fal.ai Flux Schnell.
+    """Generate a portrait image via Replicate's Flux Schnell.
 
     Args:
         prompt: Image generation prompt.
@@ -143,44 +439,266 @@ def generate_image(
         The output_path on success.
 
     Raises:
-        RuntimeError: If FAL_KEY is not set or generation fails.
+        RuntimeError: If REPLICATE_API_TOKEN is not set or generation fails.
     """
-    import fal_client
+    import httpx
+    import replicate
 
     config = config or get_config()
 
-    if not config.has_fal:
-        raise RuntimeError("CLIPFORGE_FAL_KEY not set — cannot generate AI images")
+    if not config.has_replicate:
+        raise RuntimeError(
+            "CLIPFORGE_REPLICATE_KEY / REPLICATE_API_TOKEN not set — cannot generate AI images"
+        )
 
-    os.environ["FAL_KEY"] = config.fal_key
+    client = replicate.Client(
+        api_token=config.replicate_key,
+        timeout=httpx.Timeout(10.0, read=120.0, connect=10.0, pool=10.0),
+    )
     enhanced = _enhance_prompt(prompt)
     log.info("Generating image: %s...", prompt[:60])
 
-    result = fal_client.subscribe(
-        "fal-ai/flux/schnell",
-        arguments={
+    outputs = client.run(
+        "black-forest-labs/flux-schnell",
+        input={
             "prompt": enhanced,
-            "image_size": {"width": 1080, "height": 1920},
-            "num_images": 1,
-            "num_inference_steps": 4,
-            "enable_safety_checker": False,
+            "aspect_ratio": "9:16",
+            "num_outputs": 1,
+            "output_format": "png",
+            "disable_safety_checker": True,
         },
     )
 
-    if not result or not result.get("images"):
-        raise RuntimeError("fal.ai returned no images")
-
-    image_url = result["images"][0]["url"]
-    resp = requests.get(image_url, timeout=30)
-    resp.raise_for_status()
+    if not outputs:
+        raise RuntimeError("Replicate returned no images")
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_bytes(resp.content)
+    output_path.write_bytes(outputs[0].read())
 
     size_kb = output_path.stat().st_size // 1024
     log.info("Saved image: %s (%d KB)", output_path.name, size_kb)
     return output_path
+
+
+def _reword_scene_prompt(prompt: str, config: Config) -> str:
+    """Ask the LLM to rephrase a scene prompt that failed to generate.
+
+    Keeps the same subject, setting, and mood but changes the wording —
+    useful when a generation failure is caused by specific phrasing
+    (e.g. a content-filter trigger) rather than the scene itself.
+    """
+    if not config.has_llm:
+        return prompt
+
+    llm_prompt = f"""This AI image generation prompt failed to produce a result:
+
+"{prompt}"
+
+Rewrite it to describe the exact same scene, subject, and mood, but using
+different wording and phrasing — in case specific words triggered the
+failure. Keep the same length and level of visual detail.
+
+Return ONLY the rewritten prompt, nothing else."""
+
+    try:
+        text = _call_llm(llm_prompt, config, max_tokens=200, temperature=0.9).strip()
+        if text:
+            return text
+    except RuntimeError as exc:
+        log.warning("Prompt reword failed: %s", exc)
+
+    return prompt
+
+
+def generate_image_with_retry(
+    prompt: str,
+    output_path: Path,
+    config: Optional[Config] = None,
+    max_attempts: int = 5,
+) -> Path:
+    """Generate an image, retrying on failure and rewording the prompt via LLM
+    if repeated attempts with the original wording keep failing.
+
+    Args:
+        prompt: Image generation prompt.
+        output_path: Where to save the PNG image.
+        config: Configuration instance.
+        max_attempts: Total attempts before giving up (no gradient fallback).
+
+    Returns:
+        The output_path on success.
+
+    Raises:
+        RuntimeError: If all attempts are exhausted.
+    """
+    config = config or get_config()
+    current_prompt = prompt
+    last_exc: Optional[Exception] = None
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return generate_image(current_prompt, output_path, config=config)
+        except Exception as exc:
+            last_exc = exc
+            log.warning(
+                "Image generation attempt %d/%d failed: %s", attempt, max_attempts, exc
+            )
+            if attempt >= 2 and attempt < max_attempts:
+                current_prompt = _reword_scene_prompt(current_prompt, config)
+                log.info("Rewording prompt after failure: %s...", current_prompt[:60])
+
+    raise RuntimeError(
+        f"Image generation failed after {max_attempts} attempts: {last_exc}"
+    )
+
+
+# ── Image-to-video animation ─────────────────────────────────────────────────
+
+
+def generate_i2v_clip(
+    image_path: Path,
+    motion_prompt: str,
+    output_path: Path,
+    duration: int = 5,
+    config: Optional[Config] = None,
+) -> Path:
+    """Animate a still image into a motion clip via Replicate's image-to-video model.
+
+    Args:
+        image_path: Path to the source image (used as the first frame).
+        motion_prompt: Detailed motion/camera description for the model.
+        output_path: Where to save the MP4 clip.
+        duration: Clip duration in seconds (1-20).
+        config: Configuration instance.
+
+    Returns:
+        The output_path on success.
+
+    Raises:
+        RuntimeError: If REPLICATE_API_TOKEN is not set or generation fails.
+    """
+    import httpx
+    import replicate
+
+    config = config or get_config()
+
+    if not config.has_replicate:
+        raise RuntimeError(
+            "CLIPFORGE_REPLICATE_KEY / REPLICATE_API_TOKEN not set — cannot generate i2v clips"
+        )
+
+    client = replicate.Client(
+        api_token=config.replicate_key,
+        timeout=httpx.Timeout(10.0, read=180.0, connect=10.0, pool=10.0),
+    )
+
+    with open(image_path, "rb") as img_file:
+        output = client.run(
+            "prunaai/p-video",
+            input={
+                "prompt": motion_prompt,
+                "image": img_file,
+                "duration": duration,
+                "resolution": "720p",
+                "fps": 24,
+                "draft": False,
+                "prompt_upsampling": True,
+                "disable_safety_filter": True,
+            },
+        )
+
+    if not output:
+        raise RuntimeError("Replicate returned no i2v output")
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # p-video returns 704x1280@24fps — normalize to the pipeline's standard
+    # 1080x1920@30fps so concat doesn't choke on mismatched stream params
+    # (mixed fps/resolution inputs cause frozen/repeated-frame glitches).
+    raw_path = output_path.with_suffix(".raw.mp4")
+    raw_path.write_bytes(output.read())
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(raw_path),
+        "-vf", "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=30",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-preset", "fast", "-crf", "20",
+        "-an",
+        str(output_path),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    raw_path.unlink(missing_ok=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg i2v normalization failed: {result.stderr[-500:]}")
+
+    size_kb = output_path.stat().st_size // 1024
+    log.info("Saved i2v clip: %s (%d KB, %ds)", output_path.name, size_kb, duration)
+    return output_path
+
+
+# ── Clip duration fitting ────────────────────────────────────────────────────
+
+
+def _probe_duration(path: Path) -> float:
+    """Return a media file's duration in seconds via ffprobe."""
+    cmd = [
+        "ffprobe", "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        str(path),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    try:
+        return float(result.stdout.strip())
+    except ValueError:
+        return 0.0
+
+
+def _fit_clip_duration(
+    clip_path: Path,
+    target_duration: float,
+    tolerance: float = 0.15,
+) -> None:
+    """Trim or pad (by holding the last frame) a clip in place to match
+    ``target_duration`` exactly.
+
+    i2v clips are requested at an integer-rounded duration and the model's
+    actual output can drift slightly, so this is what guarantees every clip
+    handed to compose_video is exactly as long as the narration segment it's
+    supposed to be on screen for.
+    """
+    actual = _probe_duration(clip_path)
+    diff = target_duration - actual
+    if actual <= 0 or abs(diff) <= tolerance:
+        return
+
+    tmp_path = clip_path.with_suffix(".fit.mp4")
+    if diff < 0:
+        cmd = [
+            "ffmpeg", "-y", "-i", str(clip_path),
+            "-t", f"{target_duration:.3f}",
+            "-c", "copy",
+            str(tmp_path),
+        ]
+    else:
+        cmd = [
+            "ffmpeg", "-y", "-i", str(clip_path),
+            "-vf", f"tpad=stop_mode=clone:stop_duration={diff:.3f}",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-preset", "fast", "-crf", "20",
+            "-an",
+            str(tmp_path),
+        ]
+
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    if result.returncode != 0 or not tmp_path.exists():
+        log.warning("Duration fit failed for %s: %s", clip_path.name, result.stderr[-300:])
+        tmp_path.unlink(missing_ok=True)
+        return
+    tmp_path.replace(clip_path)
 
 
 # ── Ken Burns effect ─────────────────────────────────────────────────────────
@@ -271,7 +789,7 @@ def image_to_clip(
 
 
 def _generate_gradient_clip(output_path: Path, duration: float = 5.0) -> Path:
-    """Generate a solid gradient color clip as fallback when no FAL_KEY."""
+    """Generate a solid gradient color clip as fallback when no REPLICATE_API_TOKEN."""
     c0, c1 = random.choice(GRADIENT_PALETTES)
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -296,76 +814,157 @@ def _generate_gradient_clip(output_path: Path, duration: float = 5.0) -> Path:
 # ── Main orchestrator ────────────────────────────────────────────────────────
 
 
+def _process_scene(
+    index: int,
+    seg: dict,
+    output_dir: Path,
+    use_ai: bool,
+    keep_images: bool,
+    num_segments: int,
+    config: Config,
+    cancel_event: Optional[threading.Event],
+) -> Path:
+    """Generate one scene's clip. Runs inside a worker thread — see
+    ``MAX_CONCURRENT_SCENES`` — so it tags this thread's log records with
+    its scene index before doing anything else."""
+    _scene_context.index = index
+
+    if cancel_event is not None and cancel_event.is_set():
+        raise GenerationCancelled(f"Cancelled before scene {index + 1}/{num_segments}")
+
+    duration = seg["duration"]
+    uid = uuid.uuid4().hex[:6]
+
+    if use_ai:
+        # Image generation: retries + LLM prompt rewording, no gradient
+        # fallback — a persistent failure here raises and aborts the run.
+        prompt = seg["prompt"]
+        img_path = output_dir / f"ai_img_{index:02d}_{uid}.png"
+        clip_path = output_dir / f"ai_clip_{index:02d}_{uid}.mp4"
+
+        generate_image_with_retry(prompt, img_path, config=config)
+
+        i2v_duration = max(2, min(20, round(duration)))
+        try:
+            motion_prompt = generate_motion_prompt(prompt, config=config)
+            generate_i2v_clip(
+                img_path, motion_prompt, clip_path,
+                duration=i2v_duration, config=config,
+            )
+        except Exception as exc:
+            log.warning(
+                "i2v generation failed for scene %d: %s — using Ken Burns fallback",
+                index + 1, exc,
+            )
+            image_to_clip(img_path, clip_path, duration=duration)
+
+        if not keep_images:
+            img_path.unlink(missing_ok=True)
+        _fit_clip_duration(clip_path, duration)
+        log.info(
+            "Scene %d/%d: AI generated (%.1fs, %.1f-%.1fs in narration)",
+            index + 1, num_segments, duration, seg["start"], seg["end"],
+        )
+        return clip_path
+
+    # AI disabled entirely (no Replicate token) — gradient for every scene.
+    clip_path = output_dir / f"gradient_clip_{index:02d}_{uid}.mp4"
+    _generate_gradient_clip(clip_path, duration=duration)
+    _fit_clip_duration(clip_path, duration)
+    log.info("Scene %d/%d: gradient fallback (%.1fs)", index + 1, num_segments, duration)
+    return clip_path
+
+
 def generate_clips(
     story: str,
     output_dir: Path,
-    num_clips: int = 5,
-    ai_ratio: float = 1.0,
+    word_data: list[dict],
     config: Optional[Config] = None,
+    keep_images: bool = False,
+    cancel_event: Optional[threading.Event] = None,
 ) -> list[Path]:
-    """Generate video clips for a story.
+    """Generate visual clips aligned to the story's actual narration timing.
 
-    Uses AI-generated images (via fal.ai) when available, falling back
-    to solid gradient clips otherwise.
+    Splits the story into scenes at natural sentence boundaries (roughly one
+    every ``TARGET_SCENE_SECONDS``, derived from the real narrated audio
+    duration), computes each scene's exact on-screen window from the TTS
+    word timestamps, and generates a clip trimmed/padded to that exact
+    duration — so clip N is guaranteed to be on screen for exactly as long
+    as its corresponding narration is being spoken.
+
+    Up to ``MAX_CONCURRENT_SCENES`` scenes generate concurrently (bounded to
+    avoid tripping Replicate's per-minute rate limit on low-credit accounts).
+    Image generation retries and rewords the prompt via LLM on repeated
+    failure rather than falling back — a persistent failure aborts the run.
+    Falls back to a Ken Burns zoom/pan clip if only the i2v step fails, and
+    to a solid gradient clip only when no Replicate token is configured.
 
     Args:
         story: The narrated story text.
         output_dir: Directory to save generated clips.
-        num_clips: Total number of clips to generate.
-        ai_ratio: Fraction of clips to generate as AI (0.0-1.0).
+        word_data: TTS word-timestamp list from ``voice.generate_speech``.
         config: Configuration instance.
+        keep_images: If True, don't delete the generated still image after
+            animating it (e.g. so a caller can offer an image preview).
+        cancel_event: If set, no scene that hasn't already started its
+            image/i2v calls will start — but an in-flight scene still
+            finishes (can't interrupt a live network call). Since scenes run
+            concurrently, up to ``MAX_CONCURRENT_SCENES`` may finish before
+            the run actually stops, not just one as in a sequential loop.
 
     Returns:
-        Ordered list of clip paths (MP4).
+        Ordered list of clip paths (MP4) in original scene order regardless
+        of completion order, each fit to its scene's exact narrated duration.
+
+    Raises:
+        GenerationCancelled: If ``cancel_event`` was set before a scene
+            could start.
     """
     config = config or get_config()
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    use_ai = config.has_fal and ai_ratio > 0
-    n_ai = max(1, int(num_clips * ai_ratio)) if use_ai else 0
+    audio_duration = (
+        word_data[-1]["start"] + word_data[-1]["duration"] if word_data else 60.0
+    )
+    target_scene_count = max(3, round(audio_duration / TARGET_SCENE_SECONDS))
 
-    # Extract scene prompts if using AI
-    scene_prompts: list[str] = []
-    if use_ai:
-        try:
-            scene_prompts = extract_scene_prompts(story, num_scenes=n_ai, config=config)
-        except Exception as exc:
-            log.warning("Scene extraction failed: %s", exc)
+    sentences = _split_sentences(story)
+    use_ai = config.has_replicate
 
-    ai_slots = set(random.sample(range(num_clips), min(n_ai, num_clips)))
-    clips: list[Path] = []
-    ai_idx = 0
+    segments = segment_story_into_scenes(story, target_scene_count, config=config)
+    segments = compute_scene_timings(segments, sentences, word_data)
+    segments = split_long_segments(segments, max_duration=TARGET_SCENE_SECONDS * 2)
+    log.info(
+        "Segmented story into %d scenes from %d sentences",
+        len(segments), len(sentences),
+    )
 
-    for i in range(num_clips):
-        duration = random.uniform(3.5, 6.0)
-        uid = uuid.uuid4().hex[:6]
+    clips: list[Optional[Path]] = [None] * len(segments)
+    first_exc: Optional[BaseException] = None
 
-        if i in ai_slots and ai_idx < len(scene_prompts):
-            # Try AI generation
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_CONCURRENT_SCENES) as executor:
+        futures = {
+            executor.submit(
+                _process_scene, i, seg, output_dir, use_ai, keep_images,
+                len(segments), config, cancel_event,
+            ): i
+            for i, seg in enumerate(segments)
+        }
+        for future in concurrent.futures.as_completed(futures):
             try:
-                prompt = scene_prompts[ai_idx]
-                img_path = output_dir / f"ai_img_{i:02d}_{uid}.png"
-                clip_path = output_dir / f"ai_clip_{i:02d}_{uid}.mp4"
-
-                generate_image(prompt, img_path, config=config)
-                image_to_clip(img_path, clip_path, duration=duration)
-
-                # Clean up raw image
-                img_path.unlink(missing_ok=True)
-                clips.append(clip_path)
-                ai_idx += 1
-                log.info("Clip %d/%d: AI generated", i + 1, num_clips)
-                continue
+                clips[futures[future]] = future.result()
             except Exception as exc:
-                log.warning("AI clip %d failed: %s — using fallback", i + 1, exc)
+                if first_exc is None:
+                    first_exc = exc
+                # Don't start scenes that haven't already begun.
+                for f in futures:
+                    f.cancel()
 
-        # Fallback: gradient clip
-        clip_path = output_dir / f"gradient_clip_{i:02d}_{uid}.mp4"
-        _generate_gradient_clip(clip_path, duration=duration)
-        clips.append(clip_path)
-        log.info("Clip %d/%d: gradient fallback", i + 1, num_clips)
+    if first_exc is not None:
+        raise first_exc
 
-    ai_count = sum(1 for c in clips if "ai_clip" in c.name)
-    log.info("Generated %d AI + %d fallback clips", ai_count, len(clips) - ai_count)
-    return clips
+    clips_final = [c for c in clips if c is not None]
+    ai_count = sum(1 for c in clips_final if "ai_clip" in c.name)
+    log.info("Generated %d AI + %d fallback clips", ai_count, len(clips_final) - ai_count)
+    return clips_final

@@ -1,0 +1,721 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ClipForge</title>
+<link rel="icon" id="favicon">
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #12151c;
+    --panel-2: #171b24;
+    --border: #232838;
+    --text: #e8eaf0;
+    --muted: #8890a4;
+    --accent: #ff7a45;
+    --accent-2: #7c5cff;
+    --ok: #34d399;
+    --err: #f87171;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 80px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 28px; flex-wrap: wrap; gap: 8px; }
+  header h1 { font-size: 22px; margin: 0; letter-spacing: -0.02em; }
+  header h1 span { color: var(--accent); }
+  header .tagline { color: var(--muted); font-size: 13px; }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+
+  .form-row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .field { flex: 1 1 220px; display: flex; flex-direction: column; gap: 6px; }
+  .field.small { flex: 0 1 140px; }
+  label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  input[type=text], input[type=number], select {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 14px;
+    outline: none;
+  }
+  input[type=text]:focus, input[type=number]:focus, select:focus { border-color: var(--accent-2); }
+  button {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 11px 22px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    align-self: flex-end;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.secondary {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    font-weight: 500;
+  }
+
+  .status-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .timer { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .timer .unit { font-size: 15px; color: var(--muted); font-weight: 500; margin-left: 4px; }
+  .current-stage { color: var(--muted); font-size: 13px; }
+  .current-stage b { color: var(--text); }
+
+  .steps { display: flex; gap: 8px; margin-top: 18px; flex-wrap: wrap; }
+  .step {
+    flex: 1 1 0;
+    min-width: 110px;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    border-radius: 10px;
+    padding: 12px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    position: relative;
+  }
+  .step .name { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .step .sub { font-size: 11px; color: var(--muted); min-height: 14px; }
+  .step .icon { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; border: 2px solid var(--border); }
+  .step.active { border-color: var(--accent-2); box-shadow: 0 0 0 1px var(--accent-2) inset; }
+  .step.active .icon { border-color: var(--accent-2); border-top-color: transparent; animation: spin 0.8s linear infinite; }
+  .step.done .icon { background: var(--ok); border-color: var(--ok); }
+  .step.error .icon { background: var(--err); border-color: var(--err); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .section-title { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 12px; }
+
+  .clip-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .clip-card {
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+  .clip-card .idx { font-weight: 700; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .clip-card .state { color: var(--text); }
+  .clip-card.active { border-color: var(--accent); }
+  .clip-card.done { border-color: var(--ok); }
+  .clip-card.done .state { color: var(--ok); }
+  .clip-card.fallback { border-color: #d9a441; }
+  .clip-card.fallback .state { color: #d9a441; }
+  .clip-card.error { border-color: var(--err); }
+  .clip-card.error .state { color: var(--err); }
+  .clip-card.pending { opacity: 0.45; }
+  .clip-card.has-preview { cursor: pointer; }
+
+  .clip-preview {
+    position: fixed;
+    z-index: 50;
+    width: 200px;
+    aspect-ratio: 9 / 16;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    box-shadow: 0 12px 32px rgba(0,0,0,0.55);
+    background: #000;
+    pointer-events: none;
+  }
+  .clip-preview img, .clip-preview video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .clip-preview .tag {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    background: rgba(0,0,0,0.6);
+    color: var(--text);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+
+  .script-box { white-space: pre-wrap; font-size: 13px; line-height: 1.5; color: var(--text); background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+
+  .script-edit {
+    width: 100%;
+    min-height: 160px;
+    resize: vertical;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    font-family: inherit;
+    box-sizing: border-box;
+  }
+  .script-edit:focus { outline: none; border-color: var(--accent-2); }
+  .script-meta { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
+  .script-meta .word-count { font-size: 12px; color: var(--muted); }
+  .script-actions { display: flex; gap: 10px; }
+
+  .status-bar .stop-btn {
+    background: var(--panel-2);
+    border: 1px solid var(--err);
+    color: #ffb4b4;
+    font-weight: 600;
+  }
+
+  .log-box {
+    background: #05060a;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11.5px;
+    line-height: 1.6;
+    max-height: 260px;
+    overflow-y: auto;
+    color: #a9b0c3;
+  }
+  .log-box div.lvl-WARNING { color: #e0b64c; }
+  .log-box div.lvl-ERROR, .log-box div.lvl-DONE.err { color: var(--err); }
+
+  .result { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+  .result video { width: 260px; border-radius: 10px; border: 1px solid var(--border); background: #000; }
+  .result-meta { flex: 1 1 260px; }
+  .result-meta .big-time { font-size: 40px; font-weight: 700; }
+  .result-meta a.download {
+    display: inline-block; margin-top: 10px; color: #fff; background: var(--accent);
+    padding: 8px 16px; border-radius: 8px; text-decoration: none; font-size: 13px; font-weight: 600;
+  }
+
+  .hidden { display: none !important; }
+  .error-banner { background: #2a1414; border: 1px solid var(--err); color: #ffb4b4; border-radius: 10px; padding: 12px 16px; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="clip-preview hidden" id="clipPreview"></div>
+<div class="wrap">
+  <header>
+    <h1>Clip<span>Forge</span></h1>
+    <div class="tagline">title in → short-form video out, live</div>
+  </header>
+
+  <div class="card">
+    <div class="form-row">
+      <div class="field" style="flex: 2 1 320px;">
+        <label for="title">Video title / topic</label>
+        <input id="title" type="text" placeholder="The Attachment Style Ruining Your Relationships" />
+      </div>
+      <div class="field small">
+        <label for="style">Style</label>
+        <select id="style"></select>
+      </div>
+      <div class="field small">
+        <label for="lengthSeconds">Length (sec)</label>
+        <input id="lengthSeconds" type="number" min="15" max="180" value="60" />
+      </div>
+      <button id="genBtn">Write Script</button>
+    </div>
+  </div>
+
+  <div id="errorBanner" class="error-banner hidden"></div>
+
+  <div id="approvalCard" class="card hidden">
+    <p class="section-title">Review script before generating the video</p>
+    <textarea id="scriptEditBox" class="script-edit"></textarea>
+    <div class="script-meta">
+      <span class="word-count" id="scriptWordCount"></span>
+      <div class="script-actions">
+        <button class="secondary" id="regenScriptBtn">Regenerate</button>
+        <button id="approveScriptBtn">Generate Video →</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="progressCard" class="card hidden">
+    <div class="status-bar">
+      <div>
+        <div class="timer"><span id="timerVal">0.0</span><span class="unit">sec elapsed</span></div>
+        <div class="current-stage">Currently: <b id="currentStage">starting…</b></div>
+      </div>
+      <button class="stop-btn" id="stopBtn">Stop</button>
+    </div>
+
+    <div class="steps" id="steps">
+      <div class="step" data-stage="script"><div class="name"><span class="icon"></span>Script</div><div class="sub"></div></div>
+      <div class="step" data-stage="narration"><div class="name"><span class="icon"></span>Narration</div><div class="sub"></div></div>
+      <div class="step" data-stage="subtitles"><div class="name"><span class="icon"></span>Subtitles</div><div class="sub"></div></div>
+      <div class="step" data-stage="clips"><div class="name"><span class="icon"></span>Visuals</div><div class="sub"></div></div>
+      <div class="step" data-stage="compose"><div class="name"><span class="icon"></span>Compose</div><div class="sub"></div></div>
+    </div>
+  </div>
+
+  <div id="scriptCard" class="card hidden">
+    <p class="section-title">Generated script</p>
+    <div class="script-box" id="scriptBox"></div>
+  </div>
+
+  <div id="clipsCard" class="card hidden">
+    <p class="section-title">Visual clips</p>
+    <div class="clip-grid" id="clipGrid"></div>
+  </div>
+
+  <div id="resultCard" class="card hidden">
+    <p class="section-title">Result</p>
+    <div class="result">
+      <video id="resultVideo" controls></video>
+      <div class="result-meta">
+        <div class="big-time"><span id="totalTime">-</span>s</div>
+        <div style="color: var(--muted); font-size: 13px;">total time, title → finished video</div>
+        <a class="download" id="downloadLink" href="#" download>Download video</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <p class="section-title">Log</p>
+    <div class="log-box" id="logBox"></div>
+  </div>
+</div>
+
+<script>
+// ── Favicon status indicator ──────────────────────────────────────────────
+// default: idle. yellow: job running (regardless of tab focus). green: job
+// finished while the tab was unattended — reverts to default as soon as the
+// tab regains focus/visibility.
+const FAVICON_COLORS = { default: "#ff7a45", running: "#e6b800", done: "#34d399" };
+let faviconState = "default";
+
+function faviconDataUri(color) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">`
+    + `<circle cx="16" cy="16" r="13" fill="${color}" stroke="rgba(0,0,0,0.35)" stroke-width="1.5"/></svg>`;
+  return "data:image/svg+xml," + encodeURIComponent(svg);
+}
+
+function setFavicon(state) {
+  faviconState = state;
+  document.getElementById("favicon").href = faviconDataUri(FAVICON_COLORS[state] || FAVICON_COLORS.default);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && faviconState === "done") setFavicon("default");
+});
+
+setFavicon("default");
+
+const STAGE_ORDER = ["script", "narration", "subtitles", "clips", "compose"];
+const stageEls = {};
+STAGE_ORDER.forEach(s => stageEls[s] = document.querySelector(`.step[data-stage="${s}"]`));
+
+const titleInput = document.getElementById("title");
+const styleSelect = document.getElementById("style");
+const lengthInput = document.getElementById("lengthSeconds");
+const genBtn = document.getElementById("genBtn");
+const errorBanner = document.getElementById("errorBanner");
+const approvalCard = document.getElementById("approvalCard");
+const scriptEditBox = document.getElementById("scriptEditBox");
+const scriptWordCount = document.getElementById("scriptWordCount");
+const regenScriptBtn = document.getElementById("regenScriptBtn");
+const approveScriptBtn = document.getElementById("approveScriptBtn");
+const stopBtn = document.getElementById("stopBtn");
+const progressCard = document.getElementById("progressCard");
+const timerVal = document.getElementById("timerVal");
+const currentStage = document.getElementById("currentStage");
+const scriptCard = document.getElementById("scriptCard");
+const scriptBox = document.getElementById("scriptBox");
+const clipsCard = document.getElementById("clipsCard");
+const clipGrid = document.getElementById("clipGrid");
+const resultCard = document.getElementById("resultCard");
+const resultVideo = document.getElementById("resultVideo");
+const totalTimeEl = document.getElementById("totalTime");
+const downloadLink = document.getElementById("downloadLink");
+const logBox = document.getElementById("logBox");
+const clipPreview = document.getElementById("clipPreview");
+
+let timerHandle = null;
+let clientStart = 0;
+let totalClips = 0;
+let completedClips = 0;
+let currentJobId = null;
+
+fetch("/api/styles").then(r => r.json()).then(styles => {
+  Object.keys(styles).forEach(key => {
+    const opt = document.createElement("option");
+    opt.value = key;
+    opt.textContent = key.replace(/_/g, " ");
+    styleSelect.appendChild(opt);
+  });
+});
+
+function setStage(stage, state, sub) {
+  const el = stageEls[stage];
+  if (!el) return;
+  el.classList.remove("active", "done", "error");
+  if (state) el.classList.add(state);
+  if (sub !== undefined) el.querySelector(".sub").textContent = sub;
+}
+
+function markStagesDoneBefore(stage) {
+  const idx = STAGE_ORDER.indexOf(stage);
+  for (let i = 0; i < idx; i++) setStage(STAGE_ORDER[i], "done");
+}
+
+function ensureClipGrid(n) {
+  if (totalClips === n) return;
+  totalClips = n;
+  clipGrid.innerHTML = "";
+  for (let i = 0; i < n; i++) {
+    const card = document.createElement("div");
+    card.className = "clip-card pending";
+    card.dataset.idx = i;
+    card.innerHTML = `<div class="idx">Clip ${i + 1}</div><div class="state">pending</div>`;
+    card.addEventListener("mouseenter", (e) => showClipPreview(card, e));
+    card.addEventListener("mousemove", (e) => positionClipPreview(e));
+    card.addEventListener("mouseleave", hideClipPreview);
+    clipGrid.appendChild(card);
+  }
+  clipsCard.classList.remove("hidden");
+}
+
+function clipCard(i) {
+  return clipGrid.querySelector(`.clip-card[data-idx="${i}"]`);
+}
+
+function setClipState(i, cls, text) {
+  const card = clipCard(i);
+  if (!card) return;
+  card.className = `clip-card ${cls}${card.dataset.previewKind ? " has-preview" : ""}`;
+  card.querySelector(".state").textContent = text;
+}
+
+function setClipPreview(i, kind, filename) {
+  const card = clipCard(i);
+  if (!card || !currentJobId) return;
+  card.dataset.previewKind = kind;
+  card.dataset.previewFile = filename;
+  card.classList.add("has-preview");
+}
+
+function positionClipPreview(e) {
+  const margin = 16;
+  let x = e.clientX + 18;
+  let y = e.clientY + 18;
+  if (x + 200 > window.innerWidth) x = e.clientX - 200 - 18;
+  if (y + 356 > window.innerHeight) y = Math.max(margin, window.innerHeight - 356 - margin);
+  clipPreview.style.left = `${x}px`;
+  clipPreview.style.top = `${y}px`;
+}
+
+function showClipPreview(card, e) {
+  const kind = card.dataset.previewKind;
+  const filename = card.dataset.previewFile;
+  if (!kind || !filename || !currentJobId) return;
+
+  const url = `/api/preview/${currentJobId}/${encodeURIComponent(filename)}`;
+  const tag = kind === "video" ? "clip" : "image";
+  clipPreview.innerHTML = kind === "video"
+    ? `<span class="tag">${tag}</span><video src="${url}" autoplay muted loop playsinline></video>`
+    : `<span class="tag">${tag}</span><img src="${url}" alt="scene preview" />`;
+  clipPreview.classList.remove("hidden");
+  positionClipPreview(e);
+}
+
+function hideClipPreview() {
+  clipPreview.classList.add("hidden");
+  clipPreview.innerHTML = "";
+}
+
+function appendLog(evt) {
+  const div = document.createElement("div");
+  div.className = `lvl-${evt.level}`;
+  div.textContent = `[${evt.t.toFixed(1)}s] ${evt.message}`;
+  logBox.appendChild(div);
+  logBox.scrollTop = logBox.scrollHeight;
+}
+
+function handleEvent(evt) {
+  appendLog(evt);
+  const msg = evt.message;
+  let m;
+
+  if ((m = msg.match(/^(Generating|Using custom script)/)) && /story|custom script/i.test(msg)) {
+    setStage("script", "active", "writing…");
+    currentStage.textContent = "writing script";
+  }
+  if (msg.match(/^Story generated/) || msg.match(/^Using custom script/)) {
+    setStage("script", "done");
+  }
+  if ((m = msg.match(/^Script: (.*)$/s))) {
+    scriptCard.classList.remove("hidden");
+    scriptBox.textContent = m[1];
+  }
+
+  if (msg.match(/^Generating TTS narration/)) {
+    markStagesDoneBefore("narration");
+    setStage("narration", "active", "synthesizing voice…");
+    currentStage.textContent = "generating narration (TTS)";
+  }
+  if (msg.match(/^TTS generated/)) {
+    setStage("narration", "done");
+  }
+
+  if (msg.match(/^Generating subtitles/)) {
+    markStagesDoneBefore("subtitles");
+    setStage("subtitles", "active", "aligning words…");
+    currentStage.textContent = "generating subtitles";
+  }
+  if (msg.match(/^Subtitles generated/)) {
+    setStage("subtitles", "done");
+  }
+
+  if (msg.match(/^Generating visual clips/)) {
+    markStagesDoneBefore("clips");
+    setStage("clips", "active", "analyzing scenes…");
+    currentStage.textContent = "analyzing scenes";
+    completedClips = 0;
+  }
+  if ((m = msg.match(/^Segmented story into (\d+) scenes/))) {
+    setStage("clips", "active", `0 / ${m[1]} done`);
+    currentStage.textContent = "generating visual clips";
+    ensureClipGrid(parseInt(m[1], 10));
+  }
+
+  // Scenes generate concurrently now, so log lines for different scenes can
+  // interleave — route each intermediate status update using the scene
+  // index the backend tagged it with, not a sequential counter.
+  const sceneIdx = (evt.scene_idx !== null && evt.scene_idx !== undefined) ? evt.scene_idx : 0;
+
+  if (msg.match(/^Generating image:/)) {
+    setClipState(sceneIdx, "active", "generating image…");
+  }
+  if (msg.match(/^Image generation attempt \d+\/\d+ failed/)) {
+    setClipState(sceneIdx, "active", "retrying image…");
+  }
+  if (msg.match(/^Rewording prompt/)) {
+    setClipState(sceneIdx, "active", "rewording prompt…");
+  }
+  if ((m = msg.match(/^Saved image: (\S+)/))) {
+    setClipState(sceneIdx, "active", "animating (i2v)…");
+    setClipPreview(sceneIdx, "image", m[1]);
+  }
+  if (msg.match(/^i2v generation failed/)) {
+    setClipState(sceneIdx, "active", "i2v failed, using Ken Burns…");
+  }
+  if ((m = msg.match(/^Saved i2v clip: (\S+)/))) {
+    setClipPreview(sceneIdx, "video", m[1]);
+  }
+  if ((m = msg.match(/^Ken Burns clip: (\S+)/))) {
+    setClipState(sceneIdx, "active", "ken burns render…");
+    setClipPreview(sceneIdx, "video", m[1]);
+  }
+  if ((m = msg.match(/^Gradient clip: (\S+)/))) {
+    setClipState(sceneIdx, "active", "gradient fallback…");
+    setClipPreview(sceneIdx, "video", m[1]);
+  }
+  if ((m = msg.match(/^Scene (\d+)\/(\d+): (AI generated|gradient fallback)/))) {
+    const idx = parseInt(m[1], 10) - 1;
+    const outcome = m[3];
+    setClipState(idx, outcome === "AI generated" ? "done" : "fallback", outcome);
+    // Scenes can finish out of order under concurrency — this is a genuine
+    // count of completions, not "highest index seen so far".
+    completedClips += 1;
+    setStage("clips", "active", `${completedClips} / ${m[2]} done`);
+  }
+  if (msg.match(/^Generated \d+ clips$/) || msg.match(/^Generated \d+ AI \+ \d+ fallback clips/)) {
+    setStage("clips", "done");
+  }
+
+  if (msg.match(/^Composing final video/)) {
+    markStagesDoneBefore("compose");
+    setStage("compose", "active", "muxing + burning subtitles…");
+    currentStage.textContent = "composing final video";
+  }
+  if (msg.match(/^Video composed:/)) {
+    setStage("compose", "done");
+  }
+
+  if (evt.final) {
+    stopTimer();
+    stopBtn.classList.add("hidden");
+    if (evt.status === "done") {
+      STAGE_ORDER.forEach(s => setStage(s, "done"));
+      currentStage.textContent = "done";
+      totalTimeEl.textContent = evt.elapsed.toFixed(1);
+      resultVideo.src = evt.video_url;
+      downloadLink.href = evt.video_url;
+      resultCard.classList.remove("hidden");
+    } else if (evt.status === "cancelled") {
+      currentStage.textContent = "cancelled";
+      STAGE_ORDER.forEach(s => {
+        if (stageEls[s].classList.contains("active")) setStage(s, null);
+      });
+    } else {
+      currentStage.textContent = "failed";
+      STAGE_ORDER.forEach(s => {
+        if (stageEls[s].classList.contains("active")) setStage(s, null);
+      });
+      showError(evt.message || "Generation failed");
+    }
+    setFavicon(document.hidden ? "done" : "default");
+    genBtn.disabled = false;
+  }
+}
+
+function startTimer() {
+  clientStart = performance.now();
+  timerHandle = setInterval(() => {
+    timerVal.textContent = ((performance.now() - clientStart) / 1000).toFixed(1);
+  }, 100);
+}
+function stopTimer() {
+  if (timerHandle) clearInterval(timerHandle);
+}
+
+function showError(msg) {
+  errorBanner.textContent = msg;
+  errorBanner.classList.remove("hidden");
+}
+
+function updateWordCount() {
+  const n = scriptEditBox.value.trim().split(/\s+/).filter(Boolean).length;
+  scriptWordCount.textContent = `${n} words`;
+}
+scriptEditBox.addEventListener("input", updateWordCount);
+
+async function fetchScript(event) {
+  const title = titleInput.value.trim();
+  if (!title) { showError("Enter a title first."); return; }
+  errorBanner.classList.add("hidden");
+  resultCard.classList.add("hidden");
+  progressCard.classList.add("hidden");
+
+  const btn = event.currentTarget;
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Writing…";
+
+  try {
+    const res = await fetch("/api/generate-script", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title,
+        style: styleSelect.value,
+        length_seconds: parseFloat(lengthInput.value),
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || `Request failed (${res.status})`);
+    }
+    const { script } = await res.json();
+    scriptEditBox.value = script;
+    updateWordCount();
+    approvalCard.classList.remove("hidden");
+  } catch (err) {
+    showError(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+
+genBtn.addEventListener("click", fetchScript);
+regenScriptBtn.addEventListener("click", fetchScript);
+
+approveScriptBtn.addEventListener("click", async () => {
+  const title = titleInput.value.trim();
+  const script = scriptEditBox.value.trim();
+  if (!script) { showError("Script is empty."); return; }
+
+  errorBanner.classList.add("hidden");
+  approvalCard.classList.add("hidden");
+  resultCard.classList.add("hidden");
+  scriptCard.classList.add("hidden");
+  clipsCard.classList.add("hidden");
+  progressCard.classList.remove("hidden");
+  stopBtn.classList.remove("hidden");
+  stopBtn.disabled = false;
+  stopBtn.textContent = "Stop";
+  logBox.innerHTML = "";
+  totalClips = 0;
+  completedClips = 0;
+  hideClipPreview();
+  STAGE_ORDER.forEach(s => setStage(s, null, ""));
+  approveScriptBtn.disabled = true;
+  timerVal.textContent = "0.0";
+  currentStage.textContent = "starting…";
+  setFavicon("running");
+
+  try {
+    const res = await fetch("/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title,
+        style: styleSelect.value,
+        length_seconds: parseFloat(lengthInput.value),
+        script,
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || `Request failed (${res.status})`);
+    }
+    const { job_id } = await res.json();
+    currentJobId = job_id;
+    startTimer();
+
+    const source = new EventSource(`/api/events/${job_id}`);
+    source.onmessage = (e) => {
+      const evt = JSON.parse(e.data);
+      handleEvent(evt);
+      if (evt.final) source.close();
+    };
+    source.onerror = () => {
+      source.close();
+      stopTimer();
+      stopBtn.classList.add("hidden");
+      genBtn.disabled = false;
+    };
+  } catch (err) {
+    stopTimer();
+    stopBtn.classList.add("hidden");
+    genBtn.disabled = false;
+    showError(err.message);
+  } finally {
+    approveScriptBtn.disabled = false;
+  }
+});
+
+stopBtn.addEventListener("click", async () => {
+  if (!currentJobId) return;
+  stopBtn.disabled = true;
+  stopBtn.textContent = "Stopping…";
+  try {
+    await fetch(`/api/cancel/${currentJobId}`, { method: "POST" });
+  } catch (err) {
+    showError(err.message);
+  }
+});
+</script>
+</body>
+</html>
