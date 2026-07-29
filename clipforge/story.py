@@ -140,16 +140,66 @@ def _filter_banned(story: str) -> str:
     return cleaned
 
 
+_STORY_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
+_MAX_STORY_SENTENCE_WORDS = 20
+
+
+def _break_long_sentences(story: str, max_words: int = _MAX_STORY_SENTENCE_WORDS) -> str:
+    """Deterministically split any sentence over ``max_words`` at its most
+    balanced comma boundary.
+
+    The prompt asks for a hard per-sentence word cap, but LLMs don't
+    reliably obey hard caps every single time — especially on the final
+    "big finish" line, where the model tends to chain several clauses
+    together for dramatic effect. This is a safety net that runs after
+    generation so an occasional non-compliant sentence never reaches the
+    viewer as an unbroken run-on: harder to follow when read aloud, and
+    (upstream in the visuals pipeline) harder to fit into a short scene.
+    """
+    sentences = [s for s in _STORY_SENTENCE_RE.split(story.strip()) if s]
+
+    def split_one(sentence: str) -> list[str]:
+        words = sentence.split()
+        if len(words) <= max_words:
+            return [sentence]
+
+        comma_positions = [i + 1 for i, w in enumerate(words[:-1]) if w.endswith(",")]
+        if not comma_positions:
+            return [sentence]
+
+        mid = len(words) / 2
+        split_at = min(comma_positions, key=lambda p: abs(p - mid))
+        if split_at <= 1 or split_at >= len(words) - 1:
+            return [sentence]
+
+        first_words = words[:split_at]
+        first_words[-1] = first_words[-1].rstrip(",") + "."
+        second_words = words[split_at:]
+        second_words[0] = second_words[0][0].upper() + second_words[0][1:]
+
+        return split_one(" ".join(first_words)) + split_one(" ".join(second_words))
+
+    out: list[str] = []
+    for sentence in sentences:
+        out.extend(split_one(sentence))
+    return " ".join(out)
+
+
 # ── LLM call ─────────────────────────────────────────────────────────────────
 
 
 def _call_llm(
     prompt: str,
     config: Config,
-    max_tokens: int = 800,
+    max_tokens: int = 1200,
     temperature: float = 0.8,
 ) -> str:
-    """Send a chat completion request to the configured LLM provider."""
+    """Send a chat completion request to the configured LLM provider.
+
+    1200 (not 800) is the default floor because some Replicate-hosted
+    models (e.g. Claude via ``anthropic/claude-4-sonnet``) reject anything
+    below 1024 outright.
+    """
     if not config.has_llm:
         raise RuntimeError(
             "No LLM API key configured. Set CLIPFORGE_LLM_KEY or pass it in config."
@@ -256,26 +306,38 @@ def _call_replicate_llm(
     max_tokens: int,
     temperature: float,
 ) -> str:
-    """Call an OpenAI open-weight model (gpt-oss) hosted on Replicate."""
+    """Call an LLM hosted on Replicate.
+
+    Covers two shapes: open-weight prompt-completion models (gpt-oss) that
+    take ``prompt``/``max_tokens``/``temperature``/``top_p``, and officially
+    hosted chat models under their vendor's own namespace (``anthropic/``,
+    ``openai/``) whose input schemas differ per vendor and don't accept a
+    raw ``temperature``/``top_p`` pair.
+    """
     import httpx
     import replicate
 
     client = replicate.Client(
         api_token=config.replicate_key,
-        timeout=httpx.Timeout(10.0, read=120.0, connect=10.0, pool=10.0),
+        timeout=httpx.Timeout(10.0, read=180.0, connect=10.0, pool=10.0),
     )
+
+    model = config.resolved_model
+    if model.startswith("anthropic/"):
+        model_input = {"prompt": prompt, "max_tokens": max_tokens}
+    elif model.startswith("openai/"):
+        model_input = {"prompt": prompt, "max_completion_tokens": max_tokens}
+    else:
+        model_input = {
+            "prompt": prompt,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "top_p": 1,
+        }
 
     for attempt in range(3):
         try:
-            output = client.run(
-                config.resolved_model,
-                input={
-                    "prompt": prompt,
-                    "max_tokens": max_tokens,
-                    "temperature": temperature,
-                    "top_p": 1,
-                },
-            )
+            output = client.run(model, input=model_input)
             return "".join(output).strip()
         except Exception as exc:
             if attempt < 2:
@@ -298,6 +360,8 @@ def generate_story(
     topic: Optional[str] = None,
     target_seconds: float = 60.0,
     config: Optional[Config] = None,
+    llm_provider: Optional[str] = None,
+    llm_model: Optional[str] = None,
 ) -> str:
     """Generate an engaging short-form video script.
 
@@ -307,6 +371,19 @@ def generate_story(
         target_seconds: Desired narration length in seconds; the word count
             band is derived from this (~2.5 words/sec).
         config: Configuration instance. Uses env vars if not provided.
+        llm_provider: Which provider generates the script. Defaults to
+            ``config.script_llm_provider`` (itself defaulting to Groq — a
+            free, reliable chat-completion API) when not passed explicitly.
+            gpt-oss-120b via Replicate's raw-prompt mode has been observed
+            to truncate mid-sentence for some prompts (it expects the
+            "harmony" response format, not a bare prompt string), so don't
+            point this at Replicate without also setting ``llm_model`` to a
+            model that accepts plain prompts (e.g. an ``anthropic/`` or
+            ``openai/`` model hosted there).
+        llm_model: Explicit model override for ``llm_provider``. Defaults
+            to ``config.script_llm_model`` (e.g.
+            ``"anthropic/claude-4-sonnet"`` when the provider is
+            ``"replicate"``).
 
     Returns:
         A story script sized for roughly ``target_seconds`` of narration.
@@ -316,6 +393,8 @@ def generate_story(
         ValueError: If the style is unknown.
     """
     config = config or get_config()
+    llm_provider = llm_provider if llm_provider is not None else config.script_llm_provider
+    llm_model = llm_model if llm_model is not None else config.script_llm_model
 
     if style not in STYLES:
         available = ", ".join(sorted(STYLES.keys()))
@@ -352,6 +431,10 @@ OPEN LOOP
 
 PACING (this script is read aloud by TTS — every rule below is about how it sounds spoken, not how it reads on a page)
 - Average sentence 8-14 words. Vary rhythm — never two sentences in a row with the same length or the same emotional temperature
+- HARD CAP: no single sentence may exceed 20 words, no exceptions — this applies just as much to the final/payoff line as to every other sentence. A long sentence is not more dramatic, it is harder to follow and harder to read aloud
+- One idea per sentence. The moment a sentence needs a second comma to hold a second clause, it should almost always be split into two separate sentences instead — never chain three or more clauses together with commas ("X, and Y, which means Z, so W" is forbidden even without em dashes or semicolons)
+- Hitting the target word count matters just as much as sentence length. Never cut the script short to keep sentences short — if more content is needed to reach the word count, add MORE short sentences (another beat, another detail, another escalation), never make existing sentences longer
+- The final line (the payoff/reframe) must be SHORT — one clean, short, declarative sentence, not a long recap that restates everything that came before. A short ending lands harder and is easier to follow than a summary
 - Escalate roughly every 1-2 sentences with a shift in intensity: a new detail, a reversal, a stake raised. Don't let the tension go flat for more than two sentences. This should feel like a story with rising stakes, not an explainer with facts bolted on
 - Name at most ONE technical term or piece of jargon in the entire script. If you introduce a concept, use plain language for it everywhere else — never stack two named concepts back to back, that turns a story into a lecture
 - Second person ("you") beats third person ("people") wherever it's natural — a specific, personal, uncomfortable framing beats a general clinical one
@@ -369,20 +452,17 @@ Write ONLY the narration itself as plain flowing text — no title, no labels, n
 
     log.info("Generating %s story (topic=%s)...", style, topic or "random")
 
-    # Script generation always goes through Groq: a free, reliable chat-
-    # completion API. gpt-oss-120b via Replicate's raw-prompt mode has been
-    # observed to truncate mid-sentence for some prompts (it expects the
-    # "harmony" response format, not a bare prompt string) — scene
-    # extraction and motion prompts still use whatever provider is
-    # configured, since those already degrade gracefully on failure.
+    # Scene extraction and motion prompts still use whatever provider is
+    # globally configured, since those already degrade gracefully on
+    # failure — only story generation needs an explicit override here.
     story_config = dataclasses.replace(
-        config, llm_provider="groq", llm_key="", llm_model=None
+        config, llm_provider=llm_provider, llm_key="", llm_model=llm_model
     )
 
     best_story = ""
     best_word_count = 0
     for attempt in range(1, 4):
-        story = _filter_banned(_call_llm(prompt, story_config))
+        story = _break_long_sentences(_filter_banned(_call_llm(prompt, story_config)))
         word_count = len(story.split())
 
         if word_count > best_word_count:
@@ -402,6 +482,78 @@ Write ONLY the narration itself as plain flowing text — no title, no labels, n
         best_word_count,
     )
     return best_story
+
+
+def generate_title_suggestions(
+    style: str = "mind_blowing",
+    config: Optional[Config] = None,
+) -> list[str]:
+    """Suggest 3 viral video title/topic ideas for a given content style.
+
+    Args:
+        style: Content style key (see ``STYLES``).
+        config: Configuration instance. Uses env vars if not provided.
+
+    Returns:
+        A list of 3 short title strings.
+
+    Raises:
+        RuntimeError: If the LLM call fails or returns unusable output.
+        ValueError: If the style is unknown.
+    """
+    config = config or get_config()
+
+    if style not in STYLES:
+        available = ", ".join(sorted(STYLES.keys()))
+        raise ValueError(f"Unknown style '{style}'. Available: {available}")
+
+    style_prompt = STYLES[style]
+
+    prompt = f"""You are a viral short-form video strategist (TikTok/YouTube Shorts).
+
+CHANNEL NICHE: {style_prompt}
+
+Suggest 3 distinct video title/topic ideas for this niche that would hook viewers in the first second.
+
+Rules for each title:
+- Short, punchy, 5-12 words
+- A specific, surprising, or unsettling claim — never a vague topic label ("Interesting Space Facts")
+- No clickbait phrases like "You won't believe", "What if I told you", "Did you know"
+- No hashtags, no emojis, no quotation marks
+- Each of the 3 must cover a genuinely different fact or angle, not variations of the same one
+
+Return ONLY a JSON array of 3 strings, nothing else:
+["title one", "title two", "title three"]"""
+
+    title_config = dataclasses.replace(
+        config,
+        llm_provider=config.script_llm_provider,
+        llm_key="",
+        llm_model=config.script_llm_model,
+    )
+
+    # 1024, not 300: Replicate-hosted Claude rejects max_tokens below 1024
+    # outright, and title_config may now route there (see _call_llm docstring).
+    text = _call_llm(prompt, title_config, max_tokens=1024, temperature=1.0)
+    if "```" in text:
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+        text = text.strip()
+
+    try:
+        titles = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Title suggestions: LLM returned invalid JSON: {text[:200]}") from exc
+
+    if not isinstance(titles, list) or not titles:
+        raise RuntimeError("Title suggestions: LLM returned an empty or non-list response")
+
+    titles = [str(t).strip().strip('"') for t in titles if str(t).strip()]
+    if not titles:
+        raise RuntimeError("Title suggestions: no usable titles in LLM response")
+
+    return titles[:3]
 
 
 def list_styles() -> dict[str, str]:

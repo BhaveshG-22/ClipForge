@@ -55,10 +55,30 @@ log.addFilter(_SceneIndexFilter())
 # to aim for from the actual narrated audio duration.
 TARGET_SCENE_SECONDS = 4.5
 
+# No scene is allowed to be shorter than this — prevents rapid-fire sub-2s
+# jump cuts when a run-on sentence gets clause-split into many fragments.
+MIN_SCENE_SECONDS = 2.5
+
 # Used only when TTS produced no word timestamps at all (last-resort pacing).
 WORDS_PER_SECOND_FALLBACK = 2.5
 
 # ── Cinematic prompt suffixes ────────────────────────────────────────────────
+
+CHARACTER_STYLE_SUFFIX = (
+    "flat hand-drawn cartoon illustration style, simple flat colors, "
+    "clean bold line art, minimalist, messy brown hair, blank plain white "
+    "face with no visible nose or shading, simple dot eyes. Only one single "
+    "character on screen, no other people, no crowds, no photorealism. "
+    "The character has exactly two arms and two hands, both clearly "
+    "attached to his own body. Any object he is holding or near is held by "
+    "his own hand only. No extra hands, no floating hands, no disembodied "
+    "hands or arms attached to objects, no hidden or off-screen person"
+)
+
+# Sane values above 1.0 for lora_scale are model-specific; these were
+# tuned by comparing test generations against the character reference set.
+CHARACTER_LORA_SCALE = 1.15
+CHARACTER_GUIDANCE_SCALE = 3.5
 
 CINEMATIC_SUFFIXES: list[str] = [
     "cinematic lighting, dramatic atmosphere, 4K, photorealistic, film grain",
@@ -85,12 +105,22 @@ GRADIENT_PALETTES: list[tuple[str, str]] = [
 ]
 
 
-def _enhance_prompt(scene: str) -> str:
-    """Turn a scene description into a cinematic AI image prompt."""
-    suffix = random.choice(CINEMATIC_SUFFIXES)
+def _enhance_prompt(scene: str, style_suffix: Optional[str] = None) -> str:
+    """Turn a scene description into a cinematic AI image prompt.
+
+    Args:
+        scene: The scene's visual description.
+        style_suffix: A cinematic style phrase to apply. Callers generating
+            a whole video should pick ONE suffix once and pass it to every
+            scene — picking randomly per scene (the old behavior) made the
+            lighting/color-grade/tone shift scene to scene within one video.
+    """
+    suffix = style_suffix or random.choice(CINEMATIC_SUFFIXES)
     return (
         f"{scene}, {suffix}. "
         f"No text, no words, no letters, no watermark, no UI elements. "
+        f"Anatomically correct hands and arms, no extra or floating limbs, "
+        f"no disembodied hands attached to objects. "
         f"Portrait orientation 9:16, vertical composition."
     )
 
@@ -196,6 +226,26 @@ def segment_story_into_scenes(
         return _fallback_segments(sentences, target_scene_count)
 
     numbered = "\n".join(f"[{i}] {s}" for i, s in enumerate(sentences))
+
+    if config.has_character:
+        character_rules = """- Every scene MUST depict THE HOST as the main visual subject — a single
+  recurring cartoon character who is reacting to, embodying, demonstrating,
+  or physically acting out that part of the story. Never write a scene as
+  pure B-roll, an empty environment, an object close-up, or other
+  people/crowds with no host present — the host must be doing something in
+  every single scene
+- Vary the host's pose, facial expression, camera framing (close-up,
+  medium, wide), and surrounding environment from scene to scene so it
+  doesn't feel repetitive, but it is always the same single host character
+- If a scene involves a prop or device (a gun, a scanner, a phone, etc.),
+  make it explicit that the host himself is the one holding or operating
+  it with his own hand — never describe a prop floating or operated by an
+  unseen hand"""
+        subject_rules = "- NO other people or crowds — only the host character, alone, in every scene\n"
+    else:
+        character_rules = "- Make it cinematic and dramatic"
+        subject_rules = "- NO text, NO people's faces in close-up (avoid uncanny valley)\n"
+
     prompt = f"""Group these numbered sentences from a video script into roughly {target_scene_count} visual scenes for AI image generation.
 
 Sentences:
@@ -206,8 +256,7 @@ Rules:
 - Group sentences that share the same imagery/moment together; start a new scene when the visual should change
 - Aim for about {target_scene_count} scenes total, but let natural scene changes decide — a few more or fewer is fine
 - For each scene, write a vivid, specific image prompt (15-30 words) describing what we SEE — setting, lighting, mood, key visual elements
-- NO text, NO people's faces in close-up (avoid uncanny valley)
-- Make it cinematic and dramatic
+{subject_rules}{character_rules}
 
 Return ONLY a JSON array, nothing else:
 [{{"sentences": [0, 1], "prompt": "scene description"}}, ...]"""
@@ -322,6 +371,12 @@ def split_long_segments(segments: list[dict], max_duration: float) -> list[dict]
     each generation is non-deterministic anyway, so the two halves won't
     look identical) rather than dropping content or re-calling the LLM.
 
+    A single long sentence (one that narrates for well over ``max_duration``
+    on its own, with nothing to divide sentence-wise) is split purely by
+    time instead, still reusing the same text/prompt for both halves — a
+    fresh generation per half still gives visual variety even though the
+    sentence itself can't be divided.
+
     Args:
         segments: Timed scenes from ``compute_scene_timings``.
         max_duration: Longest a single scene is allowed to be, in seconds.
@@ -334,28 +389,102 @@ def split_long_segments(segments: list[dict], max_duration: float) -> list[dict]
         changed = False
         out: list[dict] = []
         for seg in segments:
-            if seg["duration"] <= max_duration or len(seg["sentence_indices"]) < 2:
+            if seg["duration"] <= max_duration:
                 out.append(seg)
                 continue
 
-            indices = seg["sentence_indices"]
-            mid = len(indices) // 2
-            first_indices, second_indices = indices[:mid], indices[mid:]
-            split_time = seg["start"] + seg["duration"] * (len(first_indices) / len(indices))
+            if len(seg["sentence_indices"]) >= 2:
+                indices = seg["sentence_indices"]
+                mid = len(indices) // 2
+                first_indices, second_indices = indices[:mid], indices[mid:]
+                split_time = seg["start"] + seg["duration"] * (len(first_indices) / len(indices))
 
-            out.append({
-                **seg,
-                "sentence_indices": first_indices,
-                "end": split_time,
-                "duration": split_time - seg["start"],
-            })
-            out.append({
-                **seg,
-                "sentence_indices": second_indices,
-                "start": split_time,
-                "end": seg["end"],
-                "duration": seg["end"] - split_time,
-            })
+                out.append({
+                    **seg,
+                    "sentence_indices": first_indices,
+                    "end": split_time,
+                    "duration": split_time - seg["start"],
+                })
+                out.append({
+                    **seg,
+                    "sentence_indices": second_indices,
+                    "start": split_time,
+                    "end": seg["end"],
+                    "duration": seg["end"] - split_time,
+                })
+            else:
+                split_time = seg["start"] + seg["duration"] / 2
+                out.append({
+                    **seg,
+                    "end": split_time,
+                    "duration": split_time - seg["start"],
+                })
+                out.append({
+                    **seg,
+                    "start": split_time,
+                    "end": seg["end"],
+                    "duration": seg["end"] - split_time,
+                })
+            changed = True
+        segments = out
+    return segments
+
+
+def merge_short_segments(segments: list[dict], min_duration: float) -> list[dict]:
+    """Merge any scene shorter than ``min_duration`` into a neighboring scene.
+
+    A run-on sentence in the script can get clause-split into many short
+    fragments (see ``_split_sentences``), and if each fragment becomes its
+    own scene the result is a burst of sub-2-second jump cuts — jarring
+    rather than punchy. Merging keeps the earlier (usually more general)
+    scene's image prompt, since the merged scene still needs to visually
+    cover both spans of narration reasonably well.
+
+    Args:
+        segments: Timed scenes from ``compute_scene_timings`` /
+            ``split_long_segments``.
+        min_duration: Shortest a single scene is allowed to be, in seconds.
+
+    Returns:
+        Segments with any under-long scene merged into a neighbor.
+    """
+    if len(segments) <= 1:
+        return segments
+
+    changed = True
+    while changed and len(segments) > 1:
+        changed = False
+        out: list[dict] = []
+        skip_next = False
+        for i, seg in enumerate(segments):
+            if skip_next:
+                skip_next = False
+                continue
+            if seg["duration"] >= min_duration:
+                out.append(seg)
+                continue
+
+            # Merge into the next scene if there is one, otherwise the
+            # previous scene already appended to `out`.
+            if i + 1 < len(segments):
+                nxt = segments[i + 1]
+                out.append({
+                    **seg,
+                    "sentence_indices": seg["sentence_indices"] + nxt["sentence_indices"],
+                    "text": f"{seg['text']} {nxt['text']}",
+                    "end": nxt["end"],
+                    "duration": nxt["end"] - seg["start"],
+                })
+                skip_next = True
+            else:
+                prev = out.pop()
+                out.append({
+                    **prev,
+                    "sentence_indices": prev["sentence_indices"] + seg["sentence_indices"],
+                    "text": f"{prev['text']} {seg['text']}",
+                    "end": seg["end"],
+                    "duration": seg["end"] - prev["start"],
+                })
             changed = True
         segments = out
     return segments
@@ -427,13 +556,18 @@ def generate_image(
     prompt: str,
     output_path: Path,
     config: Optional[Config] = None,
+    style_suffix: Optional[str] = None,
 ) -> Path:
-    """Generate a portrait image via Replicate's Flux Schnell.
+    """Generate a portrait image via Replicate's Flux Schnell, or via the
+    trained channel-character LoRA when one is configured.
 
     Args:
         prompt: Image generation prompt.
         output_path: Where to save the PNG image.
         config: Configuration instance.
+        style_suffix: Cinematic style phrase — pass the same one for every
+            scene in a video to keep the look consistent (see
+            ``_enhance_prompt``).
 
     Returns:
         The output_path on success.
@@ -455,19 +589,31 @@ def generate_image(
         api_token=config.replicate_key,
         timeout=httpx.Timeout(10.0, read=120.0, connect=10.0, pool=10.0),
     )
-    enhanced = _enhance_prompt(prompt)
+    if config.has_character:
+        # The photorealistic CINEMATIC_SUFFIXES fight the trained flat-cartoon
+        # style and pull generations off-model (glasses, shading, wrong
+        # outfit) — use a suffix matching the training captions instead.
+        enhanced = _enhance_prompt(prompt, CHARACTER_STYLE_SUFFIX)
+        enhanced = f"{config.character_trigger}, {enhanced}"
+        model_ref = config.character_lora
+    else:
+        enhanced = _enhance_prompt(prompt, style_suffix)
+        model_ref = "black-forest-labs/flux-schnell"
+
     log.info("Generating image: %s...", prompt[:60])
 
-    outputs = client.run(
-        "black-forest-labs/flux-schnell",
-        input={
-            "prompt": enhanced,
-            "aspect_ratio": "9:16",
-            "num_outputs": 1,
-            "output_format": "png",
-            "disable_safety_checker": True,
-        },
-    )
+    run_input = {
+        "prompt": enhanced,
+        "aspect_ratio": "9:16",
+        "num_outputs": 1,
+        "output_format": "png",
+        "disable_safety_checker": True,
+    }
+    if config.has_character:
+        run_input["lora_scale"] = CHARACTER_LORA_SCALE
+        run_input["guidance_scale"] = CHARACTER_GUIDANCE_SCALE
+
+    outputs = client.run(model_ref, input=run_input)
 
     if not outputs:
         raise RuntimeError("Replicate returned no images")
@@ -516,6 +662,7 @@ def generate_image_with_retry(
     output_path: Path,
     config: Optional[Config] = None,
     max_attempts: int = 5,
+    style_suffix: Optional[str] = None,
 ) -> Path:
     """Generate an image, retrying on failure and rewording the prompt via LLM
     if repeated attempts with the original wording keep failing.
@@ -525,6 +672,7 @@ def generate_image_with_retry(
         output_path: Where to save the PNG image.
         config: Configuration instance.
         max_attempts: Total attempts before giving up (no gradient fallback).
+        style_suffix: Cinematic style phrase, shared across a video's scenes.
 
     Returns:
         The output_path on success.
@@ -538,7 +686,9 @@ def generate_image_with_retry(
 
     for attempt in range(1, max_attempts + 1):
         try:
-            return generate_image(current_prompt, output_path, config=config)
+            return generate_image(
+                current_prompt, output_path, config=config, style_suffix=style_suffix,
+            )
         except Exception as exc:
             last_exc = exc
             log.warning(
@@ -823,6 +973,7 @@ def _process_scene(
     num_segments: int,
     config: Config,
     cancel_event: Optional[threading.Event],
+    style_suffix: Optional[str] = None,
 ) -> Path:
     """Generate one scene's clip. Runs inside a worker thread — see
     ``MAX_CONCURRENT_SCENES`` — so it tags this thread's log records with
@@ -842,7 +993,9 @@ def _process_scene(
         img_path = output_dir / f"ai_img_{index:02d}_{uid}.png"
         clip_path = output_dir / f"ai_clip_{index:02d}_{uid}.mp4"
 
-        generate_image_with_retry(prompt, img_path, config=config)
+        generate_image_with_retry(
+            prompt, img_path, config=config, style_suffix=style_suffix,
+        )
 
         i2v_duration = max(2, min(20, round(duration)))
         try:
@@ -935,10 +1088,15 @@ def generate_clips(
     segments = segment_story_into_scenes(story, target_scene_count, config=config)
     segments = compute_scene_timings(segments, sentences, word_data)
     segments = split_long_segments(segments, max_duration=TARGET_SCENE_SECONDS * 2)
+    segments = merge_short_segments(segments, min_duration=MIN_SCENE_SECONDS)
     log.info(
         "Segmented story into %d scenes from %d sentences",
         len(segments), len(sentences),
     )
+
+    # Pick ONE cinematic style for the whole video, not per scene — a random
+    # pick per scene meant lighting/color-grade/tone could shift every cut.
+    style_suffix = random.choice(CINEMATIC_SUFFIXES)
 
     clips: list[Optional[Path]] = [None] * len(segments)
     first_exc: Optional[BaseException] = None
@@ -947,7 +1105,7 @@ def generate_clips(
         futures = {
             executor.submit(
                 _process_scene, i, seg, output_dir, use_ai, keep_images,
-                len(segments), config, cancel_event,
+                len(segments), config, cancel_event, style_suffix,
             ): i
             for i, seg in enumerate(segments)
         }

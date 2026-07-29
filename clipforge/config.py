@@ -81,6 +81,22 @@ class Config:
     replicate_key: str = field(
         default_factory=lambda: os.environ.get("CLIPFORGE_REPLICATE_KEY", "")
     )
+    character_lora: str = field(
+        default_factory=lambda: os.environ.get("CLIPFORGE_CHARACTER_LORA", "")
+    )
+    character_trigger: str = field(
+        default_factory=lambda: os.environ.get("CLIPFORGE_CHARACTER_TRIGGER", "")
+    )
+    # Script generation always uses this provider/model regardless of the
+    # global llm_provider above (which drives scene/motion prompts instead)
+    # — see generate_story's docstring for why gpt-oss-120b's raw-prompt
+    # mode is unsafe here without an explicit model override.
+    script_llm_provider: str = field(
+        default_factory=lambda: os.environ.get("CLIPFORGE_SCRIPT_LLM_PROVIDER", "groq")
+    )
+    script_llm_model: Optional[str] = field(
+        default_factory=lambda: os.environ.get("CLIPFORGE_SCRIPT_LLM_MODEL")
+    )
     voice: str = field(
         default_factory=lambda: os.environ.get(
             "CLIPFORGE_VOICE", "en-US-AndrewMultilingualNeural"
@@ -121,6 +137,11 @@ class Config:
         return bool(self.replicate_key)
 
     @property
+    def has_character(self) -> bool:
+        """Check if a trained channel-character LoRA is configured."""
+        return bool(self.character_lora and self.character_trigger)
+
+    @property
     def has_llm(self) -> bool:
         """Check if an LLM API key is configured."""
         return bool(self.llm_key)
@@ -136,7 +157,10 @@ class Config:
             "LLM Provider": self.llm_provider,
             "LLM Model": self.resolved_model,
             "LLM Key": _mask(self.llm_key),
+            "Script LLM Provider": self.script_llm_provider,
+            "Script LLM Model": self.script_llm_model or "(provider default)",
             "Replicate Token": _mask(self.replicate_key),
+            "Character LoRA": self.character_lora or "(not set)",
             "Voice": self.voice,
             "Output Dir": str(self.output_dir),
         }

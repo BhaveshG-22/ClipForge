@@ -22,7 +22,7 @@ from pydantic import BaseModel
 
 from .config import get_config
 from .pipeline import run_pipeline, tmp_dir_for
-from .story import STYLES, generate_story
+from .story import STYLES, generate_story, generate_title_suggestions
 from .visuals import GenerationCancelled
 
 logging.basicConfig(
@@ -79,6 +79,10 @@ class Job:
 _current_job: Optional[Job] = None
 
 
+class TitleSuggestRequest(BaseModel):
+    style: str = "mind_blowing"
+
+
 class ScriptRequest(BaseModel):
     title: str
     style: str = "mind_blowing"
@@ -101,6 +105,17 @@ def index() -> str:
 @app.get("/api/styles")
 def list_styles() -> dict:
     return STYLES
+
+
+@app.post("/api/suggest-titles")
+def suggest_titles(req: TitleSuggestRequest) -> dict:
+    """Suggest 3 viral title/topic ideas for the chosen style."""
+    config = get_config()
+    try:
+        titles = generate_title_suggestions(style=req.style, config=config)
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(400, str(exc))
+    return {"titles": titles}
 
 
 @app.post("/api/generate-script")

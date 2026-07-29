@@ -3,13 +3,55 @@ ASS subtitle generation for clipforge.
 
 Creates word-by-word highlighted subtitles in ASS format with
 Montserrat Bold 58px, white text with yellow highlight on the
-current word. Positioned center-bottom for vertical (9:16) video.
+current word. The single "punchiest" word per caption group (a number,
+or the longest non-stopword) gets a distinct accent color plus a quick
+scale-pop animation instead of the plain yellow highlight. Positioned
+center-bottom for vertical (9:16) video.
 """
 
 import logging
 from pathlib import Path
+from typing import Optional
 
 log = logging.getLogger("clipforge.subtitles")
+
+# Common low-information words — skipped when picking which word in a
+# caption group gets the emphasis treatment (numbers always win regardless).
+_STOPWORDS = {
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being", "to",
+    "of", "in", "on", "at", "and", "but", "or", "for", "with", "as", "that",
+    "this", "it", "its", "you", "your", "i", "we", "they", "he", "she",
+    "them", "his", "her", "our", "us", "my", "me", "so", "if", "not", "no",
+    "do", "does", "did", "have", "has", "had", "will", "would", "can",
+    "could", "should", "just", "than", "then", "there", "here", "from",
+    "by", "about", "into", "over", "out", "up", "down", "off", "again",
+    "once", "when", "where", "why", "how", "what", "who", "which", "all",
+    "each", "few", "more", "most", "other", "some", "such", "only", "own",
+    "same", "too", "very", "s", "t", "don", "now",
+}
+
+
+def _pick_emphasis_index(chunk: list[dict]) -> Optional[int]:
+    """Pick the single most 'punchy' word in a caption group to emphasize.
+
+    Numbers win outright (they're the highest-information tokens in a
+    stats/facts script). Otherwise, the longest word that isn't a common
+    stopword is picked — a cheap stand-in for "this is the word carrying
+    the sentence's meaning" without needing an extra LLM call per video.
+    """
+    for i, w in enumerate(chunk):
+        if any(ch.isdigit() for ch in w["text"]):
+            return i
+
+    best_i: Optional[int] = None
+    best_len = 0
+    for i, w in enumerate(chunk):
+        clean = w["text"].strip(".,!?;:\"'").lower()
+        if clean in _STOPWORDS or len(clean) < 4:
+            continue
+        if len(clean) > best_len:
+            best_i, best_len = i, len(clean)
+    return best_i
 
 # ── ASS header template ──────────────────────────────────────────────────────
 
@@ -79,6 +121,7 @@ def generate_subtitles(
     for g_idx, group in enumerate(groups):
         chunk = group["words"]
         words_upper = [w["text"].upper() for w in chunk]
+        emphasis_idx = _pick_emphasis_index(chunk)
 
         for w_idx, word in enumerate(chunk):
             w_start = word["start"]
@@ -90,10 +133,19 @@ def generate_subtitles(
             elif g_idx < len(groups) - 1:
                 w_end = group["end"]
 
-            # Build text with current word highlighted yellow
+            # Build text with current word highlighted yellow, or — for the
+            # group's single "punchiest" word — a distinct accent color plus
+            # a quick scale-pop so it visually pops off the rest of the line.
             parts: list[str] = []
             for j, word_text in enumerate(words_upper):
-                if j == w_idx:
+                if j == w_idx and j == emphasis_idx:
+                    parts.append(
+                        r"{\c&H00457AFF&\fscx100\fscy100"
+                        r"\t(0,120,\fscx135\fscy135)\t(120,260,\fscx100\fscy100)}"
+                        + word_text
+                        + r"{\c&H00FFFFFF&\fscx100\fscy100}"
+                    )
+                elif j == w_idx:
                     # Yellow highlight: &H0000FFFF = AABBGGRR = yellow
                     parts.append(
                         r"{\c&H0000FFFF&}" + word_text + r"{\c&H00FFFFFF&}"

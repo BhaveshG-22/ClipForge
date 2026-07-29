@@ -31,6 +31,23 @@
   header h1 { font-size: 22px; margin: 0; letter-spacing: -0.02em; }
   header h1 span { color: var(--accent); }
   header .tagline { color: var(--muted); font-size: 13px; }
+  header .header-right { display: flex; align-items: center; gap: 20px; }
+
+  .sound-toggle { display: flex; align-items: center; gap: 8px; }
+  .sound-toggle .sound-label { font-size: 12px; color: var(--muted); user-select: none; }
+  .switch { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch-slider {
+    position: absolute; cursor: pointer; inset: 0;
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 20px; transition: background 0.15s;
+  }
+  .switch-slider::before {
+    content: ""; position: absolute; height: 14px; width: 14px; left: 2px; top: 2px;
+    background: var(--muted); border-radius: 50%; transition: transform 0.15s, background 0.15s;
+  }
+  .switch input:checked + .switch-slider { background: var(--accent-2); border-color: var(--accent-2); }
+  .switch input:checked + .switch-slider::before { transform: translateX(16px); background: #fff; }
 
   .card {
     background: var(--panel);
@@ -109,6 +126,7 @@
     border-radius: 10px;
     padding: 10px 12px;
     font-size: 12px;
+    position: relative;
   }
   .clip-card .idx { font-weight: 700; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
   .clip-card .state { color: var(--text); }
@@ -121,6 +139,29 @@
   .clip-card.error .state { color: var(--err); }
   .clip-card.pending { opacity: 0.45; }
   .clip-card.has-preview { cursor: pointer; }
+
+  .img-actions {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    gap: 4px;
+  }
+  .img-actions a {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 5px;
+    background: rgba(0,0,0,0.35);
+    border: 1px solid var(--border);
+    text-decoration: none;
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .img-actions a:hover { border-color: var(--accent-2); background: rgba(0,0,0,0.55); }
 
   .clip-preview {
     position: fixed;
@@ -208,6 +249,18 @@
 
   .hidden { display: none !important; }
   .error-banner { background: #2a1414; border: 1px solid var(--err); color: #ffb4b4; border-radius: 10px; padding: 12px 16px; font-size: 13px; }
+
+  .title-suggestions { display: flex; flex-direction: column; gap: 8px; }
+  .title-suggestion {
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .title-suggestion:hover { border-color: var(--accent-2); background: #1b2030; }
 </style>
 </head>
 <body>
@@ -215,7 +268,16 @@
 <div class="wrap">
   <header>
     <h1>Clip<span>Forge</span></h1>
-    <div class="tagline">title in → short-form video out, live</div>
+    <div class="header-right">
+      <div class="sound-toggle">
+        <label class="switch">
+          <input type="checkbox" id="soundToggle" checked>
+          <span class="switch-slider"></span>
+        </label>
+        <span class="sound-label">🔔 Notify when done</span>
+      </div>
+      <div class="tagline">title in → short-form video out, live</div>
+    </div>
   </header>
 
   <div class="card">
@@ -232,11 +294,17 @@
         <label for="lengthSeconds">Length (sec)</label>
         <input id="lengthSeconds" type="number" min="15" max="180" value="60" />
       </div>
+      <button class="secondary" id="suggestBtn">✨ Suggest Titles</button>
       <button id="genBtn">Write Script</button>
     </div>
   </div>
 
   <div id="errorBanner" class="error-banner hidden"></div>
+
+  <div id="titleSuggestCard" class="card hidden">
+    <p class="section-title">Pick a title to auto-write the script</p>
+    <div class="title-suggestions" id="titleSuggestions"></div>
+  </div>
 
   <div id="approvalCard" class="card hidden">
     <p class="section-title">Review script before generating the video</p>
@@ -321,6 +389,37 @@ document.addEventListener("visibilitychange", () => {
 
 setFavicon("default");
 
+// ── Completion sound ──────────────────────────────────────────────────────
+const SOUND_PREF_KEY = "clipforge_sound_enabled";
+const soundToggle = document.getElementById("soundToggle");
+soundToggle.checked = localStorage.getItem(SOUND_PREF_KEY) !== "false";
+soundToggle.addEventListener("change", () => {
+  localStorage.setItem(SOUND_PREF_KEY, soundToggle.checked ? "true" : "false");
+});
+
+function playCompletionSound() {
+  if (!soundToggle.checked) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    [880, 1318.51].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      const start = now + i * 0.12;
+      gain.gain.setValueAtTime(0, start);
+      gain.gain.linearRampToValueAtTime(0.22, start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.35);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + 0.4);
+    });
+  } catch (err) {
+    console.warn("Completion sound failed:", err);
+  }
+}
+
 const STAGE_ORDER = ["script", "narration", "subtitles", "clips", "compose"];
 const stageEls = {};
 STAGE_ORDER.forEach(s => stageEls[s] = document.querySelector(`.step[data-stage="${s}"]`));
@@ -329,6 +428,9 @@ const titleInput = document.getElementById("title");
 const styleSelect = document.getElementById("style");
 const lengthInput = document.getElementById("lengthSeconds");
 const genBtn = document.getElementById("genBtn");
+const suggestBtn = document.getElementById("suggestBtn");
+const titleSuggestCard = document.getElementById("titleSuggestCard");
+const titleSuggestions = document.getElementById("titleSuggestions");
 const errorBanner = document.getElementById("errorBanner");
 const approvalCard = document.getElementById("approvalCard");
 const scriptEditBox = document.getElementById("scriptEditBox");
@@ -386,7 +488,11 @@ function ensureClipGrid(n) {
     const card = document.createElement("div");
     card.className = "clip-card pending";
     card.dataset.idx = i;
-    card.innerHTML = `<div class="idx">Clip ${i + 1}</div><div class="state">pending</div>`;
+    card.innerHTML = `<div class="idx">Clip ${i + 1}</div><div class="state">pending</div>` +
+      `<div class="img-actions hidden">` +
+      `<a class="img-view" target="_blank" rel="noopener" title="View source image">🖼</a>` +
+      `<a class="img-dl" title="Download source image">⬇</a>` +
+      `</div>`;
     card.addEventListener("mouseenter", (e) => showClipPreview(card, e));
     card.addEventListener("mousemove", (e) => positionClipPreview(e));
     card.addEventListener("mouseleave", hideClipPreview);
@@ -412,6 +518,22 @@ function setClipPreview(i, kind, filename) {
   card.dataset.previewKind = kind;
   card.dataset.previewFile = filename;
   card.classList.add("has-preview");
+}
+
+// Tracked separately from setClipPreview: once i2v succeeds, the hover
+// preview switches to the generated clip, but the source still image
+// (what was actually fed into i2v) should stay viewable/downloadable.
+function setSceneImage(i, filename) {
+  const card = clipCard(i);
+  if (!card || !currentJobId) return;
+  const url = `/api/preview/${currentJobId}/${encodeURIComponent(filename)}`;
+  const actions = card.querySelector(".img-actions");
+  const viewLink = card.querySelector(".img-view");
+  const dlLink = card.querySelector(".img-dl");
+  viewLink.href = url;
+  dlLink.href = url;
+  dlLink.download = `scene-${i + 1}-image.png`;
+  actions.classList.remove("hidden");
 }
 
 function positionClipPreview(e) {
@@ -515,6 +637,7 @@ function handleEvent(evt) {
   if ((m = msg.match(/^Saved image: (\S+)/))) {
     setClipState(sceneIdx, "active", "animating (i2v)…");
     setClipPreview(sceneIdx, "image", m[1]);
+    setSceneImage(sceneIdx, m[1]);
   }
   if (msg.match(/^i2v generation failed/)) {
     setClipState(sceneIdx, "active", "i2v failed, using Ken Burns…");
@@ -555,6 +678,7 @@ function handleEvent(evt) {
   if (evt.final) {
     stopTimer();
     stopBtn.classList.add("hidden");
+    playCompletionSound();
     if (evt.status === "done") {
       STAGE_ORDER.forEach(s => setStage(s, "done"));
       currentStage.textContent = "done";
@@ -600,14 +724,13 @@ function updateWordCount() {
 }
 scriptEditBox.addEventListener("input", updateWordCount);
 
-async function fetchScript(event) {
-  const title = titleInput.value.trim();
+async function fetchScriptForTitle(title, btn) {
   if (!title) { showError("Enter a title first."); return; }
   errorBanner.classList.add("hidden");
   resultCard.classList.add("hidden");
   progressCard.classList.add("hidden");
+  titleSuggestCard.classList.add("hidden");
 
-  const btn = event.currentTarget;
   const originalLabel = btn.textContent;
   btn.disabled = true;
   btn.textContent = "Writing…";
@@ -638,8 +761,47 @@ async function fetchScript(event) {
   }
 }
 
-genBtn.addEventListener("click", fetchScript);
-regenScriptBtn.addEventListener("click", fetchScript);
+genBtn.addEventListener("click", () => fetchScriptForTitle(titleInput.value.trim(), genBtn));
+regenScriptBtn.addEventListener("click", () => fetchScriptForTitle(titleInput.value.trim(), regenScriptBtn));
+
+suggestBtn.addEventListener("click", async () => {
+  errorBanner.classList.add("hidden");
+  titleSuggestCard.classList.add("hidden");
+
+  const originalLabel = suggestBtn.textContent;
+  suggestBtn.disabled = true;
+  suggestBtn.textContent = "Thinking…";
+
+  try {
+    const res = await fetch("/api/suggest-titles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ style: styleSelect.value }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || `Request failed (${res.status})`);
+    }
+    const { titles } = await res.json();
+    titleSuggestions.innerHTML = "";
+    titles.forEach((t) => {
+      const card = document.createElement("div");
+      card.className = "title-suggestion";
+      card.textContent = t;
+      card.addEventListener("click", () => {
+        titleInput.value = t;
+        fetchScriptForTitle(t, genBtn);
+      });
+      titleSuggestions.appendChild(card);
+    });
+    titleSuggestCard.classList.remove("hidden");
+  } catch (err) {
+    showError(err.message);
+  } finally {
+    suggestBtn.disabled = false;
+    suggestBtn.textContent = originalLabel;
+  }
+});
 
 approveScriptBtn.addEventListener("click", async () => {
   const title = titleInput.value.trim();
