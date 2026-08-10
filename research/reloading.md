@@ -387,3 +387,112 @@ Based only on the complaint themes and forum signal actually found above:
   run on Android." A new app should assume users move between phone/tablet and
   want the same data everywhere, independent of which reloading-press or
   chrono hardware brand they own.
+
+## Phase 4 — Distribution Channel Check
+
+Research date: 2026-08-10. Method note: as in Phases 2-3, `reddit.com` and all
+`apple.com` domains were unreachable this pass (WebFetch returned
+EGRESS_BLOCKED or "unable to fetch" for both). This pass additionally attempted
+WebFetch on every third-party subreddit-stats/analytics aggregator that
+surfaced in search results — `subredditstats.com`, `gummysearch.com`,
+`oneup.today`, `forums.feedspot.com`, `reloadyourgear.com`, `discord.com`,
+`ar15.com`, and `web.archive.org` — every single one of these also returned
+EGRESS_BLOCKED. **Every data point below therefore comes only from WebSearch
+result snippets** (the search tool's own synthesized summary of what it found,
+not a page Claude read directly), exactly as in Phases 2-3. Where a snippet
+attributes a number to a specific aggregator or thread, that source is cited;
+where no snippet surfaced a number at all, the channel is listed with "size
+unverified" per the task instructions rather than estimated.
+
+One important structural finding surfaced during this pass: **Reddit removed
+public subscriber counts from subreddit pages in September 2025**, replacing
+them with private "weekly visitors" / "weekly contributions" metrics that are
+not exposed to search indexing. This is a plausible explanation for why no
+current subscriber count for r/reloading, r/guns, or r/longrange could be
+found through any search query or aggregator this pass — the underlying data
+Reddit used to publish (and that third-party sites like subredditstats.com
+scraped) is no longer public, not simply that the search tool failed. (Source:
+[Reddit Swaps Subreddit Member Counts for Active
+Users](https://currently.att.yahoo.com/att/reddit-swaps-subreddit-member-counts-171548334.html).)
+
+### Channels found
+
+| Name | Type | Size | Source | Self-promo policy |
+|---|---|---|---|---|
+| r/reloading | Subreddit | Size unverified — confirmed to exist and be the primary reloading subreddit (referenced repeatedly across Phases 2-3 sourcing and general search results), but no subscriber count could be found (see Reddit subscriber-count removal note above); every direct/aggregator lookup was blocked | Existence confirmed via repeated cross-references in search results; no single citable count-bearing URL found | **Unknown** — could not fetch the subreddit's rules/wiki page (EGRESS_BLOCKED) or find its specific self-promotion rule text in any search snippet, despite multiple targeted queries (`"r/reloading" rules self promotion`, `"r/reloading" "no self-promotion"`, etc.). Not confirmed either way. |
+| r/guns | Subreddit | Size unverified for the same reason as above (historically one of the largest gun subreddits, but no current count found) | Existence + quarantine status confirmed via multiple search snippets, though the exact quarantine date/reason was not found | **Reduced reach regardless of rules**: confirmed **quarantined** by Reddit (requires a logged-in user to explicitly opt in to view it, and is excluded from normal browse/search surfacing) — quarantine status itself is a distribution-limiting fact independent of any self-promo rule. Rule text not found. |
+| r/Firearms | Subreddit | **293k members** | [gummysearch.com/r/Firearms](https://gummysearch.com/r/Firearms/) (search-snippet only; page itself not independently fetchable — EGRESS_BLOCKED) | Unknown — not found |
+| r/gun | Subreddit | **31k members** | [gummysearch.com/r/gun](https://gummysearch.com/r/gun/) (same snippet-only caveat) | Unknown — not found |
+| r/longrange | Subreddit | Size unverified — confirmed real and topically on-point (precision-shooting/handloading-adjacent; referenced in feedspot's "Top Sniper Rifle Forums" list alongside Sniper's Hide) but no subscriber count surfaced in any query | Existence confirmed via [forums.feedspot.com/sniper_rifle_forums](https://forums.feedspot.com/sniper_rifle_forums/) listing snippet (page not independently fetchable) | Unknown — not found |
+| Sniper's Hide Forum (snipershide.com) | Forum | **100,000 registered members** — but this figure is from a milestone-announcement thread dated **March 1, 2014**; no current 2026 count was found, so treat this as stale/floor, not current | [100,000 registered members, thanks to all who contribute — Sniper's Hide Forum](https://www.snipershide.com/shooting/threads/100-000-registered-members-thanks-to-all-who-contribute.207125/) | Unknown — not found. Note: this forum was already used as an incumbent-app source in Phase 3, where real users organically named and discussed specific commercial apps (GUNR, Load Data, Reloading Assistant) in a thread titled "Recommendation for best iphone App for storing reloading data..." — i.e. app-related discussion is clearly on-topic content there, though that is distinct from confirmed permission to post a launch announcement. |
+| Long Range Hunting Forum (longrangehunting.com) | Forum | **"Over 70,000 registered members and 400,000 total unique visitors per month"** — figure's original source/date is unclear; it surfaced via search snippets tied to the forum's YouTube channel description, not a dated forum media-kit page | [LongRangeHunting — YouTube](https://www.youtube.com/c/LongRangeHunting/videos) (channel description, per search snippet; not independently confirmed by direct fetch) | Unknown — not found. Also used as a Phase 3 incumbent-complaint source (Hornady crash-report thread), confirming it's a real, active, on-topic community. |
+| Rokslide Forum (rokslide.com) | Forum | **~40,000 registered users** — sourced to a Rokslide moderator's own comment comparing registered-user count to a YouTube channel's subscriber count, but that comment is dated **April 5, 2020**; treat as stale, not current | [Message Counts and Member Ranking — Rokslide Forum](https://rokslide.com/forums/threads/message-counts-and-member-ranking.117357/) (per search snippet) | Unknown — not found. This is the single strongest forum for on-topic pain signal in Phase 3 (the "bouncing between 3-5+ apps" fragmentation thread), and GUNR is reported to already market itself directly into that thread's audience — some form of commercial-app visibility is evidently tolerated there, at minimum via organic discussion. |
+| Nosler Reloading Forum (forum.nosler.com) | Forum | Size unverified — real, active forum confirmed (categorized subforums and indexed member-profile pages found), but no total member count surfaced in any query | Existence confirmed via [forum.nosler.com](https://forum.nosler.com/) and its subforum/member-profile pages appearing directly in search results | Unknown — not found |
+| "Reloading..." Discord server | Discord | Size unverified with two conflicting snippet-derived estimates: one search synthesis cited **21,437 members**, a second citing "a forum post from 2022" gave **21,730 members** — neither traces to a single fetchable, dated page (Discord itself and the AR15.com thread discussing it were both EGRESS_BLOCKED), so this is reported as an approximate ~21-22k range, not a confirmed figure | Invite referenced via [AR15.com — "Reloading discord server" thread](https://www.ar15.com/forums/armory/Reloading-discord-server/42-542687/) and a live invite link surfaced in search results (`discord.com/invite/VzdRbmdAjV`, not independently verified by fetch) | Unknown — not found. Functionally described in snippets as a primer/powder in-stock notification server, not a general discussion community, so it may not be a natural venue for an app-launch post regardless of rules. |
+| Hornady Manufacturing (YouTube) | YouTube (competitor-owned) | **471,000 subscribers** | Multiple search snippets referencing [youtube.com/@hornady](https://www.youtube.com/@hornady) channel stats (not independently fetched) | N/A — this is a competitor's own branded channel, not an open community; not a viable channel for an unaffiliated app announcement. |
+| Ultimate Reloader (YouTube) | YouTube (independent creator) | **408K subscribers** (current, per 2026 search result), with a documented milestone history (150,000 subscribers as of a dated Aug 14, 2020 blog post, and 100,000 as of Dec 1, 2019), which corroborates the channel is real, large, and has been steadily growing rather than a fabricated/inflated number | [150,000 Subscribers on YouTube — Ultimate Reloader](https://ultimatereloader.com/2020/08/14/150000-subscribers-on-youtube-boom-and-whats-next/); current 408K figure from 2026 search results (page not independently fetched) | Unknown — not a place to "post" as a stranger; would require pitching the creator directly for a sponsorship/review (standard influencer outreach), not a self-serve announcement channel. |
+| NSSF — National Shooting Sports Foundation | Trade org | **"More than 8,000 members"** | [nssf.org/membership](https://www.nssf.org/membership/) (per search snippet) | N/A — explicitly a **B2B** trade association whose members are manufacturers, distributors, retailers, ranges, and sportsmen's organizations, not individual consumers/reloaders. Not a channel for reaching end users directly; listed for completeness only. |
+
+**Additional structural finding — paid distribution is explicitly closed on
+Reddit for this category.** Reddit's own advertising policy was found and
+directly names this niche as prohibited: "Reddit prohibits advertisements for
+weapons and related products... weapons and guns including accessories,
+**ammunition**, and safety parts." (Source: [Reddit Advertising Policy:
+Prohibited
+Advertisements](https://advertising.reddithelp.com/en/categories/reddit-advertising-policy/reddit-advertising-policy-prohibited-advertisements),
+per search snippet.) This means even a paid promoted-post route on Reddit —
+the fallback if organic self-promotion turns out to be against subreddit
+rules — is not available for an ammunition-reloading app; only organic,
+unpaid community participation is possible on that platform.
+
+### Verdict
+
+**GO, but narrow and conditional — not the "post to r/reloading and get
+10,000 downloads" plan a founder might hope for.**
+
+What is genuinely specific and real, not vague:
+- The niche's audience unambiguously congregates in a short, nameable list of
+  real communities: r/reloading, r/guns (quarantined), r/Firearms (293k,
+  sourced), r/gun (31k, sourced), r/longrange, Sniper's Hide (~100k as of
+  2014), Long Range Hunting (~70k+ / 400k monthly visitors, snippet-sourced),
+  Rokslide (~40k as of 2020), Nosler's forum, a ~21-22k-member Reloading
+  Discord, and two large YouTube channels (Hornady's own 471k, and independent
+  creator Ultimate Reloader's 408k). These are not hypothetical — three of
+  them (Sniper's Hide, Long Range Hunting, Rokslide) are the exact same forums
+  already used as primary sources in Phase 3, where real, named threads show
+  people actively asking "what app should I use for reloading data" and
+  other users organically naming specific commercial apps in reply. That is
+  concrete, already-observed evidence that app-related discussion is welcome
+  content in these communities, not just a theoretical audience count.
+
+What is genuinely vague or unresolved, and keeps this from being an
+unqualified GO:
+- **No self-promotion rule text was confirmed for any single channel**,
+  including the two most important ones (r/reloading, r/guns), despite
+  numerous targeted queries — every reddit.com rules/wiki page and every
+  third-party subreddit-rules database (oneup.today's self-promo checker,
+  specifically) was EGRESS_BLOCKED. This is a real, stated gap per the task
+  instructions, not filled with invented policy text.
+- Most size numbers that do exist are **stale** (Sniper's Hide 2014, Rokslide
+  2020) or **snippet-only** (Long Range Hunting, Discord), not confirmed
+  current 2026 figures.
+- r/guns being **quarantined** and Reddit's advertising policy **explicitly
+  banning ammunition-related ads sitewide** are two confirmed, concrete
+  negatives: the single highest-reach Reddit path is gated, and the paid
+  fallback is closed by policy, not just unclear.
+
+Net call: distribution is **specific enough to name a real go-to-market
+plan** (organic participation in Rokslide/Sniper's Hide/Long Range
+Hunting/Nosler's forum threads that already exist and already discuss
+competing apps, plus the ~21-22k Reloading Discord, rather than a cold launch
+post to r/reloading or any paid Reddit ad), but it is **not the kind of large,
+low-friction, self-serve channel that would derisk distribution for a small
+indie team with zero audience**. Two strangers can plausibly participate in
+these forums over time and mention an app in an on-topic reply without being
+banned (Phase 3 shows this pattern already happening for other apps), but a
+cold announcement post to the biggest, most reach-efficient channel
+(r/reloading) carries confirmed unknown risk, and the paid-ads shortcut is
+confirmed closed. Proceed only if the team is willing to do slow, manual,
+forum-native community participation rather than a single big launch post —
+if the plan requires a fast, one-shot, high-reach announcement, this
+distribution picture argues for **KILL**.
