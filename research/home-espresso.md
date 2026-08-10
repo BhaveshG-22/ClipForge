@@ -75,3 +75,164 @@ excluded from the detail table to avoid guessing.
 ## Overall assessment
 
 This niche looks saturated rather than underserved: well over 20 distinct, real espresso-journal/shot-timer/dial-in apps were found, several launched in just the last year, spanning free/open-source (Beanconqueror), free-with-tips (PUCK YEAH!), and freemium/subscription models (Dial In Coffee, My Espresso), so a new entrant would be competing against many close functional clones rather than filling a gap. Confidence in this read is moderate, not high — the App Store's own rating/count/update-date data was unreachable in this environment, so the "most apps have very few ratings" signal rests on indirect cues (Apple's own "not enough ratings to display" wording, one directly-sourced 6-rating data point, and a non-comparable Android rating figure) rather than confirmed numbers, and several fields for nearly every app are marked unverified above.
+
+---
+
+## Phase 3 — Pain Mining
+
+Environment constraints for this phase (confirmed live, not assumed): the App Store customer-reviews
+RSS feed and all `apple.com`/`apps.apple.com` URLs are unreachable (`EGRESS_BLOCKED`), as in Phase 2.
+Beyond that, `WebFetch` was tested against a wide range of **non**-Apple domains this phase, and
+almost all of them also returned `EGRESS_BLOCKED`: `justuseapp.com`, `play.google.com`, `mwm.ai`,
+`alternativeto.net`, `www.coffeegeek.com`, `www.home-barista.com`, `www.kaffee-netz.de`,
+`www.puckyeah.app`, and `www.reddit.com` were all blocked when fetched directly. The one domain that
+did work was `github.com` — several Beanconqueror GitHub issue pages were fetched successfully and
+are quoted directly below. Everything else in this section is a WebSearch snippet, not a direct page
+read, and is labeled as such. No review text, usernames, or forum posts were invented — where a
+thread exists only as a title+URL from a search snippet with no recoverable body text, that limitation
+is stated explicitly rather than filled in.
+
+### Incumbents reviewed (name which 2 apps and why)
+
+1. **Beanconqueror** — chosen because it is the only app in the Phase 2 list with a genuine
+   independent footprint outside the App Store: it is open-source (github.com/graphefruit/Beanconqueror)
+   with an active public issue tracker (issues numbered past #1150, i.e. well over a thousand
+   filed over its lifetime), it is also distributed on Google Play with its own review stream, and
+   it surfaced in more third-party aggregator/blog mentions than any other app in the list. GitHub
+   issues were directly fetchable in this environment, making it the single best source of concrete,
+   attributable pain points available to this research.
+2. **Doppio – Barista's Book** — chosen over PUCK YEAH! Espresso Tracker as the second pick because
+   Doppio's App Store ID (`id1209190124`) is far lower/older than the 675xxxxxxx–676xxxxxxx-range IDs
+   that dominate the rest of the Phase 2 list, consistent with it being a long-established app (also
+   referenced as "long-established" in a WebSearch-synthesized comparison snippet), and multiple
+   independent review-aggregator snippets returned actual **numeric rating-breakdown percentages**
+   for it (see below) — a level of quantified signal no other app besides Beanconqueror produced.
+   PUCK YEAH! by contrast had only a single self-reported data point (5.0/5 from 6 ratings, sourced
+   from the developer's own blog, not an independent aggregator), so it was judged to have less
+   independently-indexed review volume than Doppio despite being more prominent in raw search-result
+   frequency.
+
+### Complaint themes
+
+All Beanconqueror items below are corroborated by at least one directly-fetched GitHub issue page;
+items marked "(WebSearch synthesis only)" come from a search engine's summarized answer over
+third-party review-aggregator pages (chiefly justuseapp.com) that could not be fetched directly, so
+the underlying review text could not be independently re-verified — treat those as lower-confidence
+than the GitHub-sourced items.
+
+**Theme: Data loss / backup reliability (Beanconqueror) — 4 distinct mentions found**
+- GitHub issue #355, "Data loss with Version 6.1 - Android" (opened Apr 26, 2022, directly fetched)
+  — a filed bug report about data loss on that release.
+- GitHub issue #284, "Enhancement: Automatic backup" (directly fetched) — describes that if a user
+  doesn't open the app for an extended period (e.g. a month), the backup routine "will immediately
+  delete all accumulated backups" on next launch, i.e. the auto-backup logic itself causes loss for
+  infrequent users.
+- A home-barista.com forum thread exists specifically titled "Beanconqueror - data loss" at
+  https://www.home-barista.com/brewing/beanconqueror-data-loss-t95136.html (title/URL confirmed via
+  WebSearch; body not fetchable — `EGRESS_BLOCKED`). A WebSearch summary of that page's content
+  states users "report opening the app to find that about a month's worth of data has been lost."
+- (WebSearch synthesis only) One aggregator-review paraphrase: a user reported "all their data was
+  suddenly lost, with only statistics remaining," and after reinstalling recovered some data but
+  lost "three weeks of records." No verbatim review text or username was recoverable — this is a
+  paraphrase from a search-engine summary of justuseapp.com, not a quote from the original review.
+
+**Theme: Missing/limited brew-workflow detail (Beanconqueror) — 6 distinct mentions found (all open GitHub feature requests, directly fetched)**
+- #1157 "Make it possible to show the values of the graph in detail view"
+- #1156 "Make it possible to cut the graph"
+- #1153 "Export baristamode brews also on junksizes and reimport them again"
+- #1144 "feat: audio alerts for brewing"
+- #1125 "feat: Espresso dial-in assistant" — a feature request for the app to actively help with
+  dialing in, implying the current app is a passive logger rather than an active dial-in aid.
+- (WebSearch synthesis only) A paraphrased complaint that the app "doesn't allow users to record
+  weight and start/finish time of each pour for a given brew," which the reviewer called "the most
+  important information for brewing consistently."
+
+**Theme: Device/hardware integration gaps (Beanconqueror) — 3 distinct mentions found**
+- GitHub #1136 "feat: add INKBIRD thermometers to supported device list" (directly fetched)
+- GitHub #1127 "Save used profile when listening to a shot / meticulous" (directly fetched)
+- (WebSearch synthesis only) A paraphrased complaint about scale pairing: "success with Decent scale
+  but not with Skale."
+
+**Theme: Cross-device sync (Beanconqueror) — 1 mention found**
+- (WebSearch synthesis only) A paraphrased wish that "data would share between phone and iPad,"
+  compared to how some cooking apps sync automatically.
+
+**Theme: Doppio – Barista's Book — no individual review text recoverable; only aggregate rating splits**
+No actual review text, quotes, or usernames were found for Doppio anywhere in this research — every
+Doppio-related search returned only App Store/aggregator listing metadata. Two different third-party
+aggregator snippets did surface numeric star-breakdowns, and they disagree with each other, which is
+itself worth flagging:
+- One aggregator: 95% 5-star / 2% 1-star (out of an unstated total count).
+- A different aggregator: 74% 5-star / 12% 1-star (out of an unstated total count).
+Neither snippet stated the total number of ratings behind these percentages, so absolute complaint
+volume for Doppio could not be estimated — only that a non-trivial minority of raters (2–12%,
+depending on source) gave it the lowest score, with no theme recoverable for why. A German-language
+coffee forum thread specifically about this app was located (kaffee-netz.de) but its body was not
+fetchable (`EGRESS_BLOCKED`); see forum signal below.
+
+### Forum/reddit signal
+
+Every `site:reddit.com r/espresso ...` query attempted (multiple phrasings: "is there an app that",
+"app recommendation", "dial in tracking") returned **zero actual Reddit threads** — results were
+entirely App Store listings and unrelated pages. Direct fetch of reddit.com was also refused
+("Claude Code is unable to fetch from www.reddit.com"). **No Reddit/r-espresso threads were found in
+this research; none are being cited or invented.**
+
+Real (non-Apple, non-Reddit) forum threads that did surface, all snippet-only (bodies unreachable):
+
+- https://www.home-barista.com/brewing/beanconqueror-data-loss-t95136.html — dedicated Home-Barista
+  forum thread specifically about Beanconqueror losing user data. Directly relevant pain signal, but
+  full thread text could not be fetched to extract verbatim quotes.
+- https://www.kaffee-netz.de/threads/doppio-baristas-book.137421/ — German coffee-forum thread
+  specifically discussing Doppio – Barista's Book. A WebSearch summary characterized the tone as
+  broadly positive ("users can configure what they want to input and what they don't"), but the
+  thread body could not be fetched to confirm or find any negative comments.
+- http://www.coffeegeek.com/forums/espresso/general/530528?Page=1 — CoffeeGeek thread "Espresso Apps
+  for phones?" from February 2011. Old and generic (asks what espresso apps exist at all); not a
+  complaint about any specific current app, included for completeness only.
+- https://www.home-barista.com/news/ios-app-for-hb-t51783.html — Home-Barista thread titled "IOS app
+  for HB." On inspection via WebSearch summary this is about whether the *forum itself* should adopt
+  a Tapatalk-style mobile browsing app, not about espresso-tracking/dial-in apps — tangential, not
+  counted as niche-app demand signal.
+- http://coffeegeek.com/forums/espresso/general/414952 — CoffeeGeek thread "Barista app for iPhone"
+  from March 2009, asking about a specific (unrelated, generic) "Barista" iPhone app of that era —
+  too old and off-target to be current signal, included for completeness only.
+
+Net read: no current, on-target "people are actively begging for a better espresso app" reddit/forum
+thread was located. The clearest actual demand/pain signal found in this phase is the Home-Barista
+thread title about Beanconqueror data loss, plus Beanconqueror's own GitHub issue backlog — not
+community-forum complaint threads about the space in general.
+
+### Feature spec implied
+
+Based only on the complaint themes actually found above (not aspirational feature-brainstorming):
+
+- **Backup that survives infrequent use.** Beanconqueror's own filed issue (#284) shows its
+  auto-backup routine purges older backups based on a fixed retention window, so a user who doesn't
+  open the app for a while can lose everything on next launch — a new app should retain backups on a
+  rolling basis regardless of how long since last open, and/or push backups to cloud storage rather
+  than only local rotation.
+- **Explicit data-loss recovery path, communicated in-app.** Multiple distinct sources (GitHub #355,
+  the home-barista.com thread title, and the aggregator paraphrase) independently point at data loss
+  as a recurring fear/event for Beanconqueror users — a new app should treat "never silently lose a
+  logged shot" as a core reliability bar, not an afterthought.
+- **True cross-device sync** (phone ↔ tablet ↔ web), not just per-device local storage — named
+  directly as a wish in the Beanconqueror findings.
+- **Pour-level granularity**, not just per-shot summary data: weight and start/finish timestamp for
+  each individual pour within a brew, which one paraphrased complaint called the most important data
+  for consistency and which Beanconqueror's own open feature requests (detailed graph values, ability
+  to trim graphs) echo.
+- **Active dial-in guidance, not just passive logging** — Beanconqueror's own community is requesting
+  a "dial-in assistant" (#1125) as a feature that doesn't yet exist even in the most mature open-source
+  app in the space; a new entrant differentiating on active recommendations rather than a manual log
+  book would be addressing a gap incumbents themselves acknowledge.
+- **Broader, named multi-brand hardware support** (Bluetooth scales beyond one or two named brands,
+  smart thermometers, e.g. INKBIRD) called out explicitly as missing/wanted integrations.
+- **Audio/attention cues during brewing** (requested directly, #1144) — a small but concrete UX gap
+  in the incumbent most people would otherwise recommend as the default.
+
+Caveat: this feature list is built almost entirely from one app's (Beanconqueror's) GitHub issue
+backlog, because it was the only source in this environment that yielded verifiable, attributable
+complaint text. Doppio — the second incumbent — yielded no usable complaint text at all in this
+environment (only conflicting aggregate star-percentages), so none of the above should be read as
+confirmed to apply to Doppio specifically, only to the open-source segment of this niche.
