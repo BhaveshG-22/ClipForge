@@ -270,3 +270,86 @@ Based on the complaint themes actually found above (not speculation beyond them)
 - **Support responsiveness matters at small scale.** HiveHelp.AI's abandonment complaints (AI
   broken, support emails unanswered) suggest that for a niche this size, visible ongoing
   maintenance and responsive support may be a differentiator in itself, independent of feature set.
+
+---
+
+## Phase 4 — Distribution Channel Check
+
+> Methodology note: as in prior phases, `apple.com` domains remained blocked this session, and
+> direct `WebFetch` of `reddit.com` and `disboard.org` both failed with `EGRESS_BLOCKED`. Two
+> further non-Reddit, non-Apple WebFetch attempts (`painonsocial.com`, `disboard.org`) also failed
+> `EGRESS_BLOCKED`. So, as in Phase 3, every figure below comes from WebSearch result
+> snippets/AI-summaries, not a directly-read page — sourced to the specific page WebSearch
+> attributed it to, and marked "size unverified" wherever no sourced number surfaced. No number
+> below was estimated or rounded from memory; where a query returned no usable figure, that is
+> stated explicitly rather than guessed.
+
+### Channels found
+
+| Name | Type | Size | Source | Self-promo / app-announcement policy |
+|---|---|---|---|---|
+| r/Beekeeping (reddit.com/r/Beekeeping) | Subreddit | ~180,000 members (reported as of Nov 2025) | [PainOnSocial — 15 Best Subreddits for Beekeepers](https://painonsocial.com/subreddits/beekeepers) (WebSearch summary only; page itself could not be fetched directly, `EGRESS_BLOCKED`) | **Unverified.** No specific rule text for this subreddit could be retrieved by any query tried (rules page, wiki, sidebar) — Reddit itself is unreachable in this session and no third-party source reproduced the actual rule wording. Do not assume it's open; the general Reddit norm found is that ~39% of subreddits ban self-promotion outright and most others cap it under a "9-to-1" content ratio, moderator-enforced per-subreddit (source: general Reddit-marketing guides, not r/Beekeeping-specific). |
+| beesource.com (Beesource Beekeeping Forums) | Forum | 60,000+ members, 1.9M+ posts | [Beesource — About Us / release notes, via WebSearch summary](https://www.beesource.com/about/) | **Confirmed restrictive.** Per Beesource's own Vendor FAQ / Business Terms (via WebSearch summary): "Free businesses cannot promote their business" at all; only paying "Supporting vendors" may start a thread in a dedicated Vendor Deals forum, and general users "should not promote or advertise any particular product, brand or service, and should remain impartial." A bare, unpaid app-announcement post would violate this. |
+| beekeepingforum.co.uk (Beekeeping & Apiculture Forum) | Forum | Unverified — no member-count figure surfaced in any query (only individual thread titles/URLs, already catalogued in Phase 3) | Site itself: [beekeepingforum.co.uk](https://beekeepingforum.co.uk/) | **Confirmed restrictive.** Per the forum's own ToS (via WebSearch summary): explicit "no commercial advertising" policy — "no promotion of Google ads, beekeeping supply companies, etc.," affiliate links/referral codes are banned, and the site states its "software can detect" link-posting on request and can result in an account ban. This is the same forum that produced the richest BeePlus complaint data in Phase 3, but its rules make a cold self-promo post there a direct ban risk. |
+| British Beekeepers Association (BBKA) | National trade/hobbyist association (UK) | Reported figures ranged 24,000–30,000 members depending on source (not an exact single figure) | Range assembled from [BBKA.org.uk](https://www.bbka.org.uk/) ("30,000"), UK Charity Commission listing ("26,000"), and BBKA's own LinkedIn ("25,000+") — all via WebSearch summary | Unverified — no self-promotion/advertising policy for BBKA (e.g. newsletter or event sponsorship terms) surfaced in this session. This is a membership association, not a self-serve posting forum, so "posting an announcement" isn't the applicable action — commercial contact would go through sponsorship/advertising channels, not confirmed here. |
+| American Beekeeping Federation (ABF) | National trade association (US) | 1,200+ members per one source; a separate, more recent (Feb 2026) source described the org "aiming to hit 1,000 members by year end," implying the two figures may not be reconciled/current | [Colorado Professional Beekeeping Association — ABF resource page](https://coloradoprobeekeeping.org/resource/american-beekeeping-federation-abf/); [ABFnet.org](https://abfnet.org/) — both via WebSearch summary | Unverified — same caveat as BBKA: membership/trade org, not an open posting forum. |
+| "Beekeepers & More!" Discord server | Discord | 4,807 members | Discord invite listing via WebSearch (`discord.com/invite/QcTEXmR`) | Unverified — no rules-channel content could be retrieved (WebFetch on `disboard.org` failed `EGRESS_BLOCKED`, and no separate rules text surfaced via WebSearch). |
+| "hi" / general bee-themed Discord server | Discord | 19,234 members | Discord invite listing via WebSearch (`discord.com/invite/bees`) | Unverified — also, note this server's description ("buzzy bees" theming) is ambiguous as to whether it's a genuine beekeeper community or a general bee/insect-fandom server; not confirmed as beekeeper-specific. |
+| "Beekeeping & Gardening" Discord server | Discord | 379 members | Discord invite listing via WebSearch (`discord.com/invite/kgxpU4SEsh`) | Unverified. |
+| "Bee's Hive" Discord server | Discord | 506 members | Discord invite listing via WebSearch (`discord.com/invite/mY3A5ptRqn`) | Unverified. |
+| "Beekeeping Server" Discord server | Discord | 57 members | Discord invite listing via WebSearch (`discord.com/invite/bNHvrTZ`) | Unverified. |
+| Texas Beeworks (YouTube, Erika Thompson) | YouTube channel | 1.28 million subscribers, 269M+ total views | Via WebSearch summary (aggregator/listicle source, exact page not individually named) | N/A as a self-post channel — this is a single creator's channel, not a forum. "Distribution" here would mean a creator partnership/sponsorship pitch, not a post; no outreach/sponsorship terms found. |
+| Flow Hive (YouTube) | YouTube channel | 222,000 subscribers, 530 videos | Via WebSearch summary | Same caveat as above — creator channel, not a postable community. |
+| Barnyard Bees (YouTube) | YouTube channel | 221,000 subscribers, 519 videos | Via WebSearch summary | Same caveat as above. |
+| Beesource "Notable members" / forum sub-boards (e.g. Commercial Beekeeping, Equipment/Hardware) | Forum sub-sections | Rolled into the 60,000+ total above; no separate per-board count found | [beesource.com/members/](https://www.beesource.com/members/), [beesource.com/forums/](https://www.beesource.com/forums/) | Same restrictive policy as parent forum above. |
+
+Facebook beekeeping groups (e.g. "Beekeeping Basics," "Natural and Regenerative Beekeeping,"
+"Beekeeping Classifieds") were found to exist by name and URL via WebSearch, but **no member-count
+figure could be retrieved for any of them** in this session (Facebook group member counts are not
+surfaced in public search snippets) — listed here for completeness only, not counted as a verified
+channel: size unverified for all.
+
+### Verdict
+
+**Distribution is real but narrow, and the two channels with the clearest evidence explicitly
+forbid the exact move this gate is testing.**
+
+- Specific, named, sourced channels do exist — this is not a case of "no evidence, kill on that
+  basis alone." r/Beekeeping (~180K, sourced), beesource.com (60K+ members / 1.9M posts, sourced),
+  BBKA (24–30K members, sourced range), ABF (1,200+ members, sourced), and five real Discord
+  servers (57 to 19,234 members, sourced via invite listings) are all genuine, evidenced
+  communities, not invented ones.
+- But for the question that actually matters — **"could two strangers post an app announcement
+  there without being banned?"** — the answer is **no** for the two forums where a policy could
+  actually be confirmed. Beesource.com explicitly disallows any unpaid business from self-promoting
+  at all (only paying "Supporting vendors" may post in a dedicated Vendor Deals forum), and
+  beekeepingforum.co.uk explicitly bans commercial advertising/affiliate links and states it
+  actively detects and bans accounts that post links on a company's behalf. These are also the two
+  forums that produced almost all of the concrete complaint data in Phase 3 — i.e. the community
+  with the richest, most engaged discussion is also the one most hostile to a cold app-announcement
+  post.
+- For r/Beekeeping — the single largest community found by a wide margin (~180K vs. 60K for
+  beesource) — no rule text could be confirmed at all in this session (Reddit itself is
+  unreachable). That is a genuine unknown, not a green light; it should not be read as "probably
+  fine."
+- The Discord servers found are either small (57–4,807 members, four of five) or of unconfirmed
+  relevance/rules (the 19,234-member server's beekeeping-specificity is itself unconfirmed), and no
+  self-promotion policy could be confirmed for any of them.
+- YouTube channels (Texas Beeworks 1.28M, Flow Hive 222K, Barnyard Bees 221K) are real audiences
+  but aren't "postable" — reaching them requires a creator-partnership/sponsorship pitch, an
+  entirely different (and uncosted, unresearched) motion than "post an announcement in a
+  community."
+
+**Call: CONDITIONAL KILL on the "organic community posting" distribution assumption specifically.**
+The niche has real, sourced communities, so this is not a blanket kill of the app idea on
+"no audience exists" grounds. But the specific, low-cost distribution plan this gate is meant to
+validate — two strangers with no existing audience posting a launch announcement into beekeeping
+forums/subreddits/Discords — is confirmed to fail on the two channels with the richest, most
+verifiable rules (immediate rule violation / ban risk), and is an unresolved unknown on the single
+largest channel (r/Beekeeping). Do not proceed on the assumption that free community posting is a
+viable launch channel. If this app is pursued, distribution needs a different, explicitly-costed
+plan before further investment — e.g., genuine multi-week reputation-building participation before
+ever mentioning a product (consistent with these forums' norms), a paid Beesource "Supporting
+vendor" listing, or direct creator-partnership outreach to one of the sourced YouTube channels —
+and r/Beekeeping's actual self-promotion rule should be manually confirmed (this session could not
+reach reddit.com) before it's counted as a viable channel at all.

@@ -302,3 +302,106 @@ directly — archerytalk.com WebFetch returned EGRESS_BLOCKED):
   full-text reviews. Before committing to build, a follow-up pass with actual
   App Store RSS/API access (from an unblocked network) is needed to read full
   review text and confirm complaint frequency at scale.
+
+---
+
+# Phase 4 — Distribution Channel Check
+
+Research date: 2026-08-10. Method note: this environment's egress proxy blocks
+apple.com and reddit.com outright (confirmed again), and it also blocks most
+third-party Reddit-stats mirrors and aggregator sites that would normally let a
+non-Reddit fetch stand in for a direct one — direct WebFetch attempts on
+subbed.org, reddit.guide, subredditstats.com, frontpagemetrics.com,
+videos.feedspot.com, archerytalk.com, archeryinterchange.com, and rokslide.com
+all failed (`ENOTFOUND` or `EGRESS_BLOCKED`). Every number below therefore comes
+from **WebSearch result snippets only** — no page was directly loaded and read
+in full, the same limitation as Phases 2-3. Snippet-derived numbers can be
+stale or mis-scraped by the intermediate aggregator, so treat exact figures as
+"approximately this order of magnitude, per a third-party snippet," not as a
+live, verified count. Where no snippet surfaced a number at all, the channel is
+marked "size unverified" per instructions rather than estimated.
+
+### Channels found
+
+| Name | Type | Size | Source (via WebSearch snippet) | Self-promo / app-announcement policy |
+|---|---|---|---|---|
+| r/Archery | Subreddit | ~62,728 subscribers (snippet figure, exact date not shown) | [subbed.org/r/Archery](https://subbed.org/r/Archery) | Unknown — no rules/wiki text surfaced despite multiple targeted searches for "r/Archery self-promotion rules." Reddit's platform-wide norm (per general self-promo guides surfaced) is roughly a 90/10 rule and most niche subs either ban outright self-promo or restrict it to specific threads/days; r/Archery's specific stance could not be confirmed. |
+| r/bowhunting | Subreddit | ~19,664 subscribers (snippet figure, exact date not shown) | [subbed.org/r/bowhunting](https://subbed.org/r/bowhunting) | Unknown — same as above, no sub-specific rule text found despite targeted searches. |
+| r/TraditionalArchery | Subreddit | 2,742 subscribers (older snippet, sourced from a ~Nov 2019 data point per the search summary — likely understates 2026 count) | WebSearch snippet (aggregator not individually named in result) | Unknown — not checked. |
+| r/Bowyer | Subreddit | 8,486 subscribers (same stale ~2019 snippet as above) | WebSearch snippet | Unknown — not checked. |
+| Archery Talk (archerytalk.com) | Forum | "over 504K members" per the site's own About Us page, as surfaced in a snippet — self-reported, all-time registered accounts, not active/monthly users | [Archery Talk – About Us](https://www.archerytalk.com/about/) | **Confirmed via snippets, and this is the strongest evidence in this phase**: general commercial/ad posting is restricted — "no links to commercial sites... unless the site is a sponsor," vendor threads must go in a manufacturer's announcement area, and non-vendor commercial posting/affiliate links are against the Terms of Use ([Vendor FAQ](https://www.archerytalk.com/help/vendor_faq/), [Forum Rules](https://www.archerytalk.com/threads/forum-rules.5944291/)). However, real precedent exists for indie devs posting an app **as a discussion/feedback thread rather than an ad**: two live threads were found — ["ArcherSense – AI archery coach app"](https://www.archerytalk.com/threads/archersense-%E2%80%93-ai-archery-coach-app.6335584/) and ["Built an archery app with AI coaching & score tracking, what do you think?"](https://www.archerytalk.com/threads/built-an-archery-app-with-ai-coaching-score-tracking-what-do-you-think-%F0%9F%8E%AF.6338896/) — both framed as "I built this, feedback welcome" rather than a paid ad, and both still standing (i.e., not evidently deleted/banned). This is direct, on-forum evidence that two strangers with no prior audience were able to post an app announcement without an obvious ban. |
+| Archery Interchange (archeryinterchange.com) | Forum | Size unverified — WebSearch could not surface a member count from any snippet | [archeryinterchange.com](https://www.archeryinterchange.com/) (existence confirmed, e.g. via its "ArcherzUpshot is dead" thread already cited in Phase 3) | Unknown — not found via WebSearch. |
+| Rokslide (rokslide.com) | Forum (general Western hunting, with an active archery/bowhunting section — already cited in Phase 3 for its sight-tape-software thread) | Size unverified — no member count surfaced | [rokslide.com/forums](https://rokslide.com/forums/) | Unknown — not found via WebSearch. |
+| Bowsite.com | Forum (bowhunting-specific; "Bowsite and Archery-Talk attract the majority of bowhunting questions" per a search summary) | "over 2 million unique visitors a year" (traffic, not registered-member count; 97% described as lurkers who never post) | WebSearch snippet summarizing bowsite.com content | Unverified — not checked; site does run a paid "NonTypical" premium membership tier, suggesting monetization sensitivity but no explicit anti-app-promo rule found. |
+| Bowhunting.com Forums (forums.bowhunting.com) | Forum | Size unverified — no member count surfaced | [forums.bowhunting.com](https://forums.bowhunting.com/) (existence confirmed) | Unknown — not found via WebSearch. |
+| Archery & Bow Hunting Classifieds (Facebook group) | Facebook group | Size unverified — group exists, no member count surfaced in snippet | [facebook.com/groups/188203491256866](https://www.facebook.com/groups/188203491256866/) | Unknown — not checked (classifieds-type groups often tolerate product posts, but this is inference, not evidence). |
+| Bowhunting League (Facebook group) | Facebook group | "46,000 active members" per snippet | WebSearch snippet citing [bowhuntingleague.com/about-us](https://bowhuntingleague.com/about-us) | Unverified — not checked. |
+| Bowhunting.com (Facebook page) | Facebook page | "555,579 likes," "6,046 people talking about it" per snippet | WebSearch snippet | Unverified — not checked; a page, not a group, so it's a broadcast channel a dev could not post into directly. |
+| World Archery (YouTube channel) | YouTube | 646,000 subscribers per snippet, corroborated by the site's own "50 million YouTube views" press release | [World Archery YouTube channel stats](https://vidiq.com/youtube-stats/channel/UCb467UvO4jRgKxWX1oqtkzA/), [World Archery — 50M views](https://www.worldarchery.sport/news/159104/world-archery-shoots-past-50-million-youtube-views) | N/A — this is a governing-body-run broadcast channel, not a community a dev could post into; listed for scale reference only. |
+| Bowmar Bowhunting (YouTube channel, Josh & Sarah Bowmar) | YouTube | 2.6 million subscribers per snippet | WebSearch snippet (Feedspot-sourced ranking) | N/A — creator-run channel; relevant only as a potential sponsorship/outreach target, not a community to post an announcement into. |
+| Born and Raised Outdoors (YouTube channel) | YouTube | 254,000 subscribers per snippet | WebSearch snippet (Feedspot-sourced ranking) | N/A — same as above. |
+| Hoyt Archery (YouTube channel, bow manufacturer) | YouTube | 106,000 subscribers per snippet | WebSearch snippet (Feedspot-sourced ranking) | N/A — brand channel, not a community. |
+| Archery Trade Association (ATA) | Trade org | Size unverified as a member count — org "represents more than 900 retail locations" and its 2026 trade show drew "hundreds of brands and thousands of attendees" per snippets, but no total membership figure was found | [archerytrade.org](https://archerytrade.org/), [ATA 2026 show week coverage](https://archerytrade.org/2026-ata-show-week-expanding-opportunities-for-retailers-and-manufacturers/) | N/A for direct self-promo (B2B trade org, not a forum); relevant as a possible press/exhibitor channel, not a place to post an app announcement to end users. |
+| USA Archery | Trade/governing org | ~23,257 members as of late 2021 (a "record high" at the time per snippet); a separately-surfaced Wikipedia reference says "approximately 25,000" — both explicitly dated/approximate, current 2026 figure not found | [USA Archery Wraps 2021 with Record High Membership](https://www.usarchery.org/article/usa-archery-wraps-2021-with-record-high-membership) | N/A — national governing body for target archery (Olympic-affiliated), not a community forum; no self-promo channel identified. |
+| National Field Archery Association (NFAA) | Trade/governing org | Size unverified — snippets only describe "49 chartered state associations, over a thousand affiliated clubs, and thousands of members," no numeric total | [nfaausa.com](https://nfaausa.com/) | N/A — same as USA Archery; governing body, not a promo channel. |
+| Archer's Den (Discord server) | Discord | 4,515 members per snippet | WebSearch snippet (via Discord invite listing) | Unverified — not checked. |
+| Magic Archer CLUB (Discord server) | Discord | 1,313 members per snippet | WebSearch snippet | Unverified — not checked. |
+| The Archery Lounge (Discord server) | Discord | Size unverified — described only as "a small group of friendly archers," no number surfaced | [disboard.org/server/670031985527488522](https://disboard.org/server/670031985527488522) | Unverified — not checked. |
+
+### Verdict
+
+**GO, with a specific, narrow distribution plan — not a vague "post it on
+Reddit and forums" plan.**
+
+Reasoning:
+
+1. **The two biggest, most relevant free/organic channels are real, sized, and
+   sourced — not estimated.** r/Archery (~63K subscribers) and r/bowhunting
+   (~20K subscribers) both have snippet-sourced subscriber counts from a
+   Reddit-stats aggregator, and Archery Talk's ~504K-member figure comes from
+   the site's own About page. That is a specific, credible answer to "where do
+   archers/bowhunters gather and how many are there," not a vague gesture at
+   "the archery community."
+2. **The distribution-risk question — would two strangers get banned for
+   posting an app announcement — has a real, positive, on-forum data point**,
+   not just a policy inference: Archery Talk's written rules do restrict
+   commercial/vendor advertising to a designated area, but two separate,
+   apparently-unbanned threads were found where indie developers posted their
+   own archery apps as "I built this, what do you think?" discussion threads
+   on the general forum (ArcherSense; an unnamed "AI coaching & score
+   tracking" app). This is exactly the kind of soft-launch/feedback framing a
+   small indie team would use, and it appears to be tolerated in practice even
+   though blunt "buy my app" ads are against the rules. This directly answers
+   the gate question with evidence, not assumption.
+3. **Reddit's specific self-promotion rules for r/Archery and r/bowhunting
+   could NOT be confirmed** despite multiple targeted searches — this is a
+   real gap. The generic Reddit norm surfaced (roughly a 90/10
+   content-to-promotion ratio, many niche subs restrict promo to certain
+   threads/days) suggests a single well-framed "I made this, would love
+   feedback" post has a reasonable chance of being tolerated the way it is on
+   Archery Talk, but this is inference, not confirmation, and should be
+   verified by hand (join both subs, read the sidebar/wiki rules directly)
+   before actually posting.
+4. **Smaller/secondary channels are real but thin on hard numbers**: Archery
+   Interchange, Rokslide, Bowsite.com, Bowhunting.com Forums, and most Discord
+   servers found have confirmed *existence* (several already cited with
+   specific thread URLs in Phase 3) but no confirmed member counts — these are
+   correctly marked "size unverified" rather than guessed, per instructions,
+   and should not be relied on for market-sizing, only as secondary posting
+   targets once the primary channels are validated.
+5. **This is not a "no audience exists" niche.** Between r/Archery,
+   r/bowhunting, Archery Talk, Bowsite.com's 2M+ annual visitors, and a set of
+   YouTube channels running from ~100K to 2.6M subscribers, there is a large,
+   active, findable audience with named entry points — the opposite of the
+   "vague, can't name specific channels" condition that would trigger a KILL
+   per the task instructions.
+
+**Call: GO to Phase 5**, on the condition that before any real launch spend,
+the team (a) manually reads r/Archery's and r/bowhunting's actual sidebar/wiki
+rules (not inferred from generic Reddit guides) to confirm self-promo policy
+first-hand, and (b) plans the initial Archery Talk post in the same
+"built this, feedback welcome" discussion-thread style as the two precedent
+threads found here, in the general/showcase forum area, not the vendor/ads
+area — since that specific framing is the only distribution approach in this
+research with direct, on-forum evidence of working for an unknown indie
+developer.
