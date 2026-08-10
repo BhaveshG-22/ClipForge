@@ -104,3 +104,169 @@ healthy market or a graveyard of low-traction hobby apps with near-zero real rat
 "not enough ratings to display" note is a hint toward the latter for at least one entry) — this
 distinction requires direct App Store API access to resolve and should be re-run once that egress
 path is available.
+
+---
+
+## Phase 3 — Pain Mining
+
+> Methodology note: as in Phase 2, `itunes.apple.com` / `apps.apple.com` remained unreachable this
+> session (`EGRESS_BLOCKED`, re-confirmed). This session's WebFetch tool was also attempted against
+> several non-Apple domains that surfaced strong candidate content — `beekeepingforum.co.uk` (two
+> different threads), `mwm.ai`, and `www.reddit.com` — and **all of them failed** (the
+> `beekeepingforum.co.uk` and `mwm.ai` calls returned `EGRESS_BLOCKED` explicitly; the
+> `reddit.com` call failed with a generic "unable to fetch" error). So, per the task instructions,
+> everything below comes exclusively from WebSearch result snippets/AI-summaries — no page was
+> read directly, and no review text below was invented; all quoted fragments are copied verbatim
+> from what WebSearch's summarizer surfaced, attributed to the source URL it cited.
+
+### Incumbents reviewed (and why)
+
+Of the four candidates named for this phase (Apiarist, BeePlus, ApiNote, HiveHelp.AI), I ran
+identical footprint-probing searches for all four before choosing. Results:
+
+- **Apiarist – Beekeeper Assistant**: WebSearch's own summary reported a rating directly sourced
+  from `apps.apple.com` (4.7★ / 134 ratings), plus a separate third-party aggregator figure (mwm.ai:
+  4.6★, "1K+ downloads"). Multiple distinct complaint/praise threads surfaced across several query
+  variants (crash-on-launch report, local-storage-only limitation, interface comparison to
+  competitors).
+- **BeePlus Beekeeping Manager**: Highest rating-count figure found for any app in this whole
+  research (AppRecs.com: 4.7★ / **852 ratings**, "~1% 1-star"). Uniquely, it has **two dedicated
+  discussion threads on a real beekeeping community forum** (beekeepingforum.co.uk), each of which
+  WebSearch's summarizer was able to pull direct user quotes from, plus repeated independent
+  complaint hits (sync issues, inventory, pollen records, photo-deletion behavior) across four
+  separate query variants. This is the single richest complaint-and-praise footprint of any app
+  found in Phase 2 or 3.
+- **ApiNote (Apiary Book)**: Some real signal (3.5–3.83★, 110 Android ratings, one freeze/save-bug
+  quote, one multi-user feature request) but consistently thinner than Apiarist or BeePlus, and one
+  listing explicitly noted "not enough ratings or reviews to display an overview" — a low-volume
+  signal.
+- **HiveHelp.AI**: Produced the most *dramatic* complaints found (app abandonment, non-functional
+  AI, unanswered support emails) but no confirmed rating-count figure surfaced anywhere, and one
+  snippet suggests it may itself have too few ratings to display an aggregate — so despite juicy
+  complaint content, its indexed volume looks lower than BeePlus or Apiarist.
+
+**Chosen for deep-dive: Apiarist and BeePlus** — both had directly-sourced App Store rating+count
+pairs (a proxy for real review volume) and both surfaced multiple independent complaint mentions
+across different search phrasings, which is the strongest indicator of "actually indexed by search
+engines" among the four candidates.
+
+### Complaint themes
+
+Only WebSearch snippets/summaries were available (no direct page reads succeeded), so the "quotes"
+below are fragments WebSearch's own summarizer extracted and attributed to a source — treat them as
+lower-confidence than a hand-verified quote, and note explicitly that in several cases only a
+paraphrase (no exact fragment) was returned by the search summarizer.
+
+**Apiarist — Beekeeper Assistant**
+
+| Theme | # of distinct mentions found | Quote / paraphrase | Source |
+|---|---|---|---|
+| No cloud sync / local-only storage | 1 | Paraphrase only — data stored on-device, "inconvenient if you want to share information between different devices" (no verbatim fragment surfaced) | mwm.ai via WebSearch summary |
+| Crash on launch (paid tier) | 1 | Paraphrase — "a user who paid for the pro version reported that the app crashes immediately and cannot be opened"; developer reportedly replied it worked fine on their end and shipped v1.18.1 | search snippet, no single named page cited |
+| Interface/design feels dated vs. competitors | 1 | Paraphrase — "the interface isn't quite as slick as BeePlus or HiveBloom" | comparative listicle summary (source page not individually named) |
+
+Total distinct complaint mentions found for Apiarist: **3**, all paraphrased — no exact quoted
+review text (in quotation marks, attributed to a specific unnamed reviewer) survived into the
+WebSearch summaries for this app.
+
+**BeePlus Beekeeping Manager**
+
+| Theme | # of distinct mentions found | Quote / paraphrase | Source |
+|---|---|---|---|
+| Cross-device sync doesn't work / is manual only | 3 | "I have not been able to synch between iOS devices" · "my only wish is that it would automatically sync between iPhone and iPad" · a third independent mention in a forum-thread summary that "some users tried BeePlus but experienced problematic syncing between devices" | beekeepingforum.co.uk threads (`beeplus-record-keeping-app.37127` incl. page 2, and `best-beekeeping-record-app-on-iphone.46332`) via WebSearch summary |
+| Inventory/equipment-catalog feature is weak | 1 | "except for the inventory function" ... "it would be really nice for the application to have a stored database of common beekeeping equipment found in any of the supply company catalogs" | beekeepingforum.co.uk thread via WebSearch summary |
+| Missing pollen-record tracking | 1 | "It has everything I need, except for pollen records. Please add this." | beekeepingforum.co.uk thread via WebSearch summary |
+| iOS-only (no Android) | 1 | Paraphrase — "It is only available for iOS devices" cited as a downside | search snippet |
+| Deleting a photo in the Photos app also deletes it from the hive record | 1 | Paraphrase — "if you delete photos from the photo app, they are also deleted from hive records," described as "a minor flaw" | search snippet |
+
+Total distinct complaint mentions found for BeePlus: **7**, spanning 5 themes — of which 2 are
+exact quoted fragments (sync-wish, pollen-records) and the rest paraphrased summaries.
+
+Overall: no 1-star-specific review bodies (i.e. a full review text explicitly labeled "1 star")
+were recoverable for either app — WebSearch could not surface individually-dated, star-rated
+review text for either Apiarist or BeePlus, only forum-quote fragments and rating aggregates. This
+should be stated plainly rather than treated as "no complaints exist."
+
+**Other apps — complaint signal found opportunistically (not part of the chosen 2, noted for
+context only):** HiveTracks (not in the Phase 2 list, but surfaced repeatedly in Phase 3 searches)
+had by far the richest complaint set of any app touched in this research — crash-on-setup reports,
+poor offline functionality "problematic since apiaries often have no cellular signal," and
+subscription-cost pushback ("$50/year... hard to justify for someone with two backyard hives when
+free tools exist") — flagged here only as a signal for the feature spec below, not scored into the
+two-app comparison since it wasn't one of the four named candidates.
+
+### Forum/reddit signal
+
+No genuine `reddit.com` thread URLs were returned by any query variant tried, including
+`site:reddit.com r/beekeeping is there an app that`, `site:reddit.com r/beekeeping app
+recommendation`, `reddit beekeeping app recommendation hive tracking`, `reddit beekeeping "is
+there an app" hive log`, and `"r/beekeeping" app recommendations iphone` — every one of these
+returned `apps.apple.com` listings or third-party listicles instead of actual Reddit pages, and the
+one direct `WebFetch` attempt against `www.reddit.com` failed outright. **Reddit signal: none
+found** — stated plainly per instructions, not fabricated.
+
+However, real, non-Reddit community-forum threads did surface with genuine URLs and were not
+invented:
+
+- https://beekeepingforum.co.uk/threads/beeplus-record-keeping-app.37127/ (and its page 2) —
+  dedicated thread specifically about the BeePlus app; this is where the sync-complaint and
+  inventory/pollen-feature-request quotes above came from.
+- https://beekeepingforum.co.uk/threads/beekeeping-apps.44510/ — general "which app do you use"
+  discussion thread.
+- https://beekeepingforum.co.uk/threads/best-beekeeping-record-app-on-iphone.46332/ — iPhone-specific
+  "what's the best record app" thread; mentions BeePlus's sync problems and several alternatives.
+- https://beekeepingforum.co.uk/threads/iphone-ipad-apps-for-beekeeping.25556/ — another
+  iOS-specific app-recommendation thread (title surfaced, content not independently pulled beyond
+  the title in this session).
+- https://www.beesource.com/threads/any-good-beekeeping-apps.309209/ — thread where the original
+  poster asked for "a simple, easy to use app to keep notes and records on my hives" and reported
+  the 3-4 apps they'd already tried "were too complicated or didnt make any sense the way they are
+  laid out"; another user asked semi-rhetorically "what on earth do you need an APP for... How
+  about a spiral-bound notebook?" (i.e. some of the audience is skeptical apps add value over paper
+  at all); a third wanted "an app that can store pictures of frames for comparison over time, and
+  also allow note entry by voice recognition."
+- https://www.beesource.com/threads/what-are-the-useful-apps-for-beekeeping.367821/ — app-recommendation
+  thread (title surfaced; content not independently pulled beyond title/aggregate summary).
+- https://www.beesource.com/threads/using-apps-for-beekeeping.375714/ — app-recommendation thread
+  (title surfaced only).
+- https://www.beesource.com/threads/bee-apps.336496/ — app-recommendation thread (title surfaced
+  only).
+- https://www.beesource.com/threads/hive-management-app-for-android.366541/ — Android-specific
+  app-recommendation thread (title surfaced only).
+
+### Feature spec implied
+
+Based on the complaint themes actually found above (not speculation beyond them):
+
+- **Reliable, automatic multi-device sync must work out of the box.** This is the single most
+  repeated complaint found (3 independent mentions for BeePlus alone) — any new app should default
+  to real-time cloud sync between a user's own devices, not a manual/"tap Sync and choose an
+  option" flow.
+- **True offline-first operation.** Surfaced independently for HiveTracks ("useless in a remote
+  apiary" without connectivity) and echoed in general listicle commentary about apps that "require
+  constant internet access" — apiaries are frequently in low/no-signal locations, so local-first
+  data entry with background sync (not sync-blocking data entry) is a baseline requirement, not a
+  nice-to-have.
+- **Don't silently couple hive-record photos to the system Photos library.** BeePlus's
+  photo-deletion-cascade complaint suggests inspection photos should be stored independently
+  (app-owned storage / copy-on-import), so a user cleaning up their camera roll doesn't
+  accidentally destroy hive records.
+- **Cover the specific record types beekeepers keep asking for and not finding**: pollen records
+  (explicit BeePlus request), an actual equipment/inventory catalog tied to supply-company SKUs
+  (explicit BeePlus request), and multi-user/shared-account access to one apiary's data (explicit
+  ApiNote request, e.g. a beekeeping couple sharing one set of hives).
+- **Price for the backyard/hobbyist majority, not the commercial operator.** The HiveTracks
+  subscription-cost complaint ("$50/year... hard to justify for someone with two backyard hives")
+  suggests a free or low-cost tier for small apiaries (the segment most forum posters describe
+  themselves as) is important, with any premium tier reserved for larger/commercial functionality.
+- **Keep the inspection-logging flow field-usable with gloves on.** Not a direct quoted complaint,
+  but a repeated theme across the general listicle/blog commentary found ("ease of use in the field
+  with gloves on" as a top stated priority) — large touch targets, minimal typing, and voice or
+  photo-first note entry (explicitly requested in one Beesource thread) over dense text forms.
+- **Don't assume an app is self-evidently worth it.** At least one forum voice pushed back on
+  needing an app at all versus a paper notebook — onboarding/marketing should make the sync,
+  reminder, and multi-apiary value proposition concrete rather than assuming beekeepers already
+  want a digital tool.
+- **Support responsiveness matters at small scale.** HiveHelp.AI's abandonment complaints (AI
+  broken, support emails unanswered) suggest that for a niche this size, visible ongoing
+  maintenance and responsive support may be a differentiator in itself, independent of feature set.
